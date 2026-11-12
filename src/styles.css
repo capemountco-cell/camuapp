@@ -122,35 +122,31 @@ p {
   flex: 1;
 }
 
-/* Shell: sidebar on the canvas, content inset on a raised panel. */
+/* Shell: top bar on the canvas, content inset on a raised panel below. */
 
 .shell {
   display: flex;
+  flex-direction: column;
   height: 100%;
 }
 
-/* Sidebar */
+/* Top bar: the title bar, navigation and actions in one strip. The window's
+   own buttons sit over its left end (titleBarStyle: Overlay). */
 
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 220px;
+.topbar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  height: 52px;
   flex-shrink: 0;
-  padding: 12px 8px 8px;
+  padding: 0 12px 0 84px;
+  -webkit-user-select: none;
 }
 
-.brand {
+.topbar-brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 28px;
-  padding: 0 8px;
-  margin-bottom: 4px;
-}
-
-.mark {
-  flex-shrink: 0;
 }
 
 .brand-name {
@@ -158,13 +154,70 @@ p {
   letter-spacing: -0.01em;
 }
 
-.side-search {
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 14px;
+  background: none;
+  color: var(--muted);
+  font-weight: 500;
+  transition:
+    background 120ms var(--ease),
+    color 120ms var(--ease);
+}
+
+.nav-item:hover {
+  color: var(--text);
+}
+
+.nav-item.active {
+  background: var(--active);
+  color: var(--text);
+}
+
+.nav-count {
+  color: var(--faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nav-count.hot {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.search-pill {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 180px;
   height: 28px;
-  padding: 0 8px;
-  margin-bottom: 12px;
+  padding: 0 6px 0 8px;
+  margin-right: 4px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--raised);
@@ -172,74 +225,47 @@ p {
   text-align: left;
 }
 
-.side-search span:not(.kbd-group) {
+.search-pill span:not(.kbd-group) {
   flex: 1;
 }
 
-.side-search:hover {
+.search-pill:hover {
   border-color: var(--line-strong);
   color: var(--muted);
 }
 
-.side-group {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+.icon-btn {
+  position: relative;
 }
 
-.side-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--muted);
-  font-weight: 500;
-  text-align: left;
-}
-
-.side-item:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--secondary);
-}
-
-.side-item.active {
+.icon-btn.active {
   background: var(--active);
   color: var(--text);
 }
 
-.side-label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.badge-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
-.side-count {
-  color: var(--faint);
+/* Status bar along the bottom of the panel */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0 20px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-}
-
-.side-item.active .side-count {
-  color: var(--muted);
-}
-
-.side-foot {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.side-status {
-  padding: 0 8px 4px 32px;
-  color: var(--faint);
-  font-size: 12px;
 }
 
 /* Main panel */
@@ -249,9 +275,10 @@ p {
   flex-direction: column;
   flex: 1;
   min-width: 0;
-  margin: 8px 8px 8px 0;
+  min-height: 0;
+  margin: 0 8px 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--panel);
   overflow: hidden;
 }
@@ -905,30 +932,6 @@ kbd {
 
 .toast.t-error {
   border-left: 2px solid var(--s-failed);
-}
-
-/* Sidebar notice: a new Camu */
-
-.side-notice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--accent-soft);
-  color: var(--secondary);
-  font-size: 12px;
-  text-align: left;
-}
-
-.side-notice .dot {
-  width: 6px;
-  height: 6px;
-  margin: 0 5px;
-  border-radius: 50%;
-  background: var(--accent);
 }
 
 /* Settings */

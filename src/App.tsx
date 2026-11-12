@@ -6,7 +6,7 @@ import { ArrowUpCircle, CheckCircle, EyeOff, Folder, Question, Refresh, Undo } f
 import { Kbd } from "./components/Kbd";
 import { Row } from "./components/Row";
 import { SettingsView } from "./components/SettingsView";
-import { Sidebar, type View } from "./components/Sidebar";
+import { TopBar, type View } from "./components/TopBar";
 import {
   group,
   isBusy,
@@ -72,6 +72,15 @@ function timeAgo(date: Date, now: number): string {
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.round(minutes / 60);
   return hours < 24 ? `${hours}h ago` : date.toLocaleDateString();
+}
+
+/** "in 5h 12m", "in 3m", "soon". */
+function untilLabel(ms: number): string {
+  if (ms <= 60_000) return "soon";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `in ${hours}h ${minutes % 60}m` : `in ${Math.round(hours / 24)}d`;
 }
 
 interface Toast {
@@ -459,10 +468,14 @@ export function App() {
   const status = checking
     ? `Checking ${reports.size} of ${apps?.length ?? "…"}`
     : lastChecked
-      ? `Checked ${timeAgo(lastChecked, now)}`
+      ? `Last checked ${timeAgo(lastChecked, now)}`
       : nativeAvailable()
         ? "Not checked yet"
         : "Open Camu as an app to check";
+  const nextCheck =
+    !checking && lastChecked && prefs.checkEveryHours > 0
+      ? untilLabel(lastChecked.getTime() + prefs.checkEveryHours * 3_600_000 - now)
+      : null;
 
   const counts: Record<Tab, number> = {
     updates: updateCount,
@@ -473,13 +486,12 @@ export function App() {
 
   return (
     <div className="shell">
-      <Sidebar
+      <TopBar
         view={view}
-        selfUpdate={selfUpdate}
         counts={counts}
         checking={checking}
-        status={status}
-        onTab={goTab}
+        selfUpdate={selfUpdate}
+        onView={goTab}
         onCheck={check}
         onPalette={() => setPalette(true)}
       />
@@ -625,6 +637,22 @@ export function App() {
           )}
         </div>
         )}
+        <footer className="statusbar">
+          <span>
+            {apps?.length ?? 0} apps
+            {prefs.ignored.length > 0 && <> · {prefs.ignored.length} ignored</>}
+            {counts.updates > 0 && (
+              <>
+                {" · "}
+                <span className="accent">{counts.updates} with updates</span>
+              </>
+            )}
+          </span>
+          <span className="spacer" />
+          <span>{status}</span>
+          {nextCheck && <span className="faint">Next check {nextCheck}</span>}
+          {prefs.autoUpdate && prefs.checkEveryHours > 0 && <span className="faint">Auto-install on</span>}
+        </footer>
       </section>
 
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}

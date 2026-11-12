@@ -20,7 +20,10 @@
         "center": true,
         "resizable": true,
         "theme": "Dark",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#000000",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 18, "y": 22 }
       }
     ],
     "security": {
