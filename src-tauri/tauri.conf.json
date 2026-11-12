@@ -13,9 +13,9 @@
     "windows": [
       {
         "title": "Camu",
-        "width": 860,
-        "height": 640,
-        "minWidth": 620,
+        "width": 1040,
+        "height": 680,
+        "minWidth": 760,
         "minHeight": 480,
         "center": true,
         "resizable": true,

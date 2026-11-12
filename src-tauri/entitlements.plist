@@ -3,6 +3,13 @@
 <plist version="1.0">
 <dict>
     <!--
+      Apple Events: Camu asks an app to quit before replacing it, the same
+      way the Dock's Quit does, so the app can save its work. macOS asks the
+      user once per app before allowing it.
+    -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    <!--
       Entitlements for the hardened runtime, which notarization requires.
       Add only what the app needs. Common additions:
 

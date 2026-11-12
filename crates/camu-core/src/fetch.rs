@@ -60,6 +60,70 @@ impl Fetch for HttpFetch {
     }
 }
 
+/// Downloads larger than this are refused (Xcode-sized apps aside, nothing
+/// Camu updates comes close).
+const MAX_DOWNLOAD: u64 = 8 * 1024 * 1024 * 1024;
+
+impl HttpFetch {
+    /// Download `url` to `dest`, calling `progress(received, total)` as bytes
+    /// arrive. Only HTTPS: an update must not be tampered with on the way.
+    pub fn download(
+        &self,
+        url: &str,
+        dest: &std::path::Path,
+        progress: &dyn Fn(u64, Option<u64>),
+    ) -> Result<(), String> {
+        use std::io::{Read, Write};
+
+        if !url.starts_with("https://") {
+            return Err(format!(
+                "refusing to download over an insecure connection: {url}"
+            ));
+        }
+        let response = self
+            .agent
+            .get(url)
+            .call()
+            .map_err(|e| format!("{url}: {e}"))?;
+        let total = response
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
+        let mut reader = response
+            .into_body()
+            .into_with_config()
+            .limit(MAX_DOWNLOAD)
+            .reader();
+        let mut file =
+            std::fs::File::create(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+
+        let mut buf = vec![0u8; 256 * 1024];
+        let mut received = 0u64;
+        let mut last_report = 0u64;
+        loop {
+            let n = reader
+                .read(&mut buf)
+                .map_err(|e| format!("download interrupted: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n])
+                .map_err(|e| format!("{}: {e}", dest.display()))?;
+            received += n as u64;
+            if received - last_report >= 512 * 1024 {
+                progress(received, total);
+                last_report = received;
+            }
+        }
+        progress(received, total);
+        if total.is_some_and(|t| t != received) {
+            return Err("download ended early".to_string());
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 pub mod fake {
     use super::Fetch;

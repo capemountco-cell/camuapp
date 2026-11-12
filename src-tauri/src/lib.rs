@@ -7,17 +7,26 @@
 //! Commands that touch the disk or the network run on a blocking thread, so
 //! the window never stalls.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use camu_core::fetch::HttpFetch;
-use camu_core::{icon, launch, platform, scan, Checker, InstalledApp};
+use camu_core::update::{self, Backup, Dirs, Job, Updater};
+use camu_core::{icon, launch, platform, scan, Checker, InstalledApp, Report};
 use tauri::{AppHandle, Emitter, State};
 
-/// Shared across commands. The checker caches the Homebrew catalogue.
+/// Shared across commands.
 struct Camu {
+    /// Caches the Homebrew catalogue between checks.
     checker: Arc<Checker>,
+    updater: Option<Arc<Updater>>,
+    dirs: Option<Dirs>,
+    /// The latest report per app, so updates act on what the user saw.
+    reports: Arc<Mutex<HashMap<String, Report>>>,
+    /// One update run at a time.
+    updating: Arc<AtomicBool>,
 }
 
 /// Run blocking work off the main thread and flatten the join error.
@@ -44,16 +53,79 @@ async fn check_updates(
     include_beta: Vec<String>,
 ) -> Result<usize, String> {
     let checker = state.checker.clone();
+    let reports = state.reports.clone();
     blocking(move || {
         checker.refresh(platform::environment());
         let apps = scan::scan(&scan::default_roots());
         let beta: HashSet<String> = include_beta.into_iter().collect();
+        reports.lock().unwrap().clear();
         checker.check_all(&apps, &beta, 8, &|report| {
+            reports
+                .lock()
+                .unwrap()
+                .insert(report.id.clone(), report.clone());
             let _ = app.emit("camu://report", report);
         });
         apps.len()
     })
     .await
+}
+
+/// Update the given apps (by id). Progress arrives as `camu://update`
+/// events; the command returns when the run is over.
+#[tauri::command]
+async fn update_apps(
+    app: AppHandle,
+    state: State<'_, Camu>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    let updater = state
+        .updater
+        .clone()
+        .ok_or("Camu can't find your home folder")?;
+    if state.updating.swap(true, Ordering::SeqCst) {
+        return Err("An update is already running".into());
+    }
+    let jobs: Vec<Job> = {
+        let reports = state.reports.lock().unwrap();
+        ids.iter()
+            .filter_map(|id| reports.get(id))
+            .filter_map(Job::from_report)
+            .collect()
+    };
+    let updating = state.updating.clone();
+    let result = blocking(move || {
+        updater.run(jobs, &|event| {
+            let _ = app.emit("camu://update", event);
+        })
+    })
+    .await;
+    updating.store(false, Ordering::SeqCst);
+    result
+}
+
+/// Saved previous versions, newest first per app.
+#[tauri::command]
+async fn list_backups(state: State<'_, Camu>) -> Result<Vec<Backup>, String> {
+    let dirs = state
+        .dirs
+        .clone()
+        .ok_or("Camu can't find your home folder")?;
+    blocking(move || update::list_backups(&dirs.backups)).await
+}
+
+/// Put an app's newest backup back. Returns the restored version.
+#[tauri::command]
+async fn roll_back(state: State<'_, Camu>, path: PathBuf) -> Result<String, String> {
+    let updater = state
+        .updater
+        .clone()
+        .ok_or("Camu can't find your home folder")?;
+    blocking(move || {
+        let app = InstalledApp::read(&path).ok_or("that app is no longer installed")?;
+        updater.roll_back(&app)
+    })
+    .await?
 }
 
 #[tauri::command]
@@ -79,13 +151,24 @@ fn reveal_app(path: PathBuf) -> Result<(), String> {
 /// Build and run the application.
 pub fn run() {
     let checker = Checker::new(Box::new(HttpFetch::new()), Default::default());
+    let dirs = Dirs::default_for_user();
+    let updater = dirs
+        .clone()
+        .map(|d| Arc::new(Updater::new(HttpFetch::new(), d)));
     tauri::Builder::default()
         .manage(Camu {
             checker: Arc::new(checker),
+            updater,
+            dirs,
+            reports: Default::default(),
+            updating: Default::default(),
         })
         .invoke_handler(tauri::generate_handler![
             list_apps,
             check_updates,
+            update_apps,
+            list_backups,
+            roll_back,
             app_icon,
             open_url,
             open_app,

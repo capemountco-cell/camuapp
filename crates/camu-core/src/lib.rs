@@ -9,10 +9,12 @@ pub mod check;
 pub mod fetch;
 pub mod icon;
 pub mod launch;
+pub mod macos;
 pub mod notes;
 pub mod platform;
 pub mod scan;
 pub mod sources;
+pub mod update;
 pub mod version;
 
 pub use app::InstalledApp;

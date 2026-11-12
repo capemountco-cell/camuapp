@@ -3,7 +3,7 @@
  * so they are tested without a window.
  */
 
-import type { InstalledApp, Install, Report, Source } from "./native";
+import type { InstalledApp, Install, Phase, Report, Source } from "./native";
 
 export type Tab = "updates" | "current" | "other" | "ignored";
 
@@ -82,20 +82,117 @@ export const sourceLabel: Record<Source, string> = {
   homebrew: "Homebrew",
 };
 
-/** The button on a row with an update. */
-export function actionLabel(install: Install): string | null {
+/** How an update installs, in the words the detail panel uses. */
+export function installLabel(install: Install): string {
   switch (install.kind) {
+    case "homebrew":
+      return `Homebrew (${install.cask})`;
+    case "download":
+      return "Download and replace";
     case "appStore":
       return "App Store";
     case "openApp":
-    case "homebrew":
-    case "download":
-      return "Open";
+      return "The app's own updater";
     case "website":
-      return "Website";
+      return "Developer's website";
     case "none":
-      return null;
+      return "—";
   }
+}
+
+/** Camu installs these itself; the rest hand off to the App Store or the app. */
+export function isOneClick(install: Install): boolean {
+  return install.kind === "homebrew" || install.kind === "download";
+}
+
+export type UpdateGroup = "updated" | "oneClick" | "appStore" | "manual";
+
+export const updateGroupLabel: Record<UpdateGroup, string> = {
+  updated: "Updated",
+  oneClick: "Ready to install",
+  appStore: "App Store",
+  manual: "Finish in the app",
+};
+
+/** Group the Updates view: what Camu installs itself first. */
+export function updateGroups(rows: Row[], phases: Map<string, Phase>): [UpdateGroup, Row[]][] {
+  const groups: Record<UpdateGroup, Row[]> = { updated: [], oneClick: [], appStore: [], manual: [] };
+  for (const row of rows) {
+    const phase = phases.get(row.app.path);
+    const install = row.report?.install;
+    if (phase?.phase === "done") groups.updated.push(row);
+    else if (install && isOneClick(install)) groups.oneClick.push(row);
+    else if (install?.kind === "appStore") groups.appStore.push(row);
+    else groups.manual.push(row);
+  }
+  return (["oneClick", "appStore", "manual", "updated"] as UpdateGroup[])
+    .filter((g) => groups[g].length > 0)
+    .map((g) => [g, groups[g]]);
+}
+
+/** A phase that is still moving. */
+export function isBusy(phase: Phase | undefined): boolean {
+  return (
+    phase !== undefined &&
+    ["queued", "downloading", "verifying", "waiting", "installing"].includes(phase.phase)
+  );
+}
+
+function megabytes(bytes: number): string {
+  return `${(bytes / 1_048_576).toFixed(bytes < 10_485_760 ? 1 : 0)} MB`;
+}
+
+export function phaseLabel(phase: Phase): string {
+  switch (phase.phase) {
+    case "queued":
+      return "Queued";
+    case "downloading":
+      return phase.total
+        ? `Downloading ${Math.floor((phase.received / phase.total) * 100)}%`
+        : phase.received > 0
+          ? `Downloading ${megabytes(phase.received)}`
+          : "Downloading";
+    case "verifying":
+      return "Verifying signature";
+    case "waiting":
+      return phase.message;
+    case "installing":
+      return "Installing";
+    case "done":
+      return `Updated to ${phase.version}`;
+    case "handoff":
+      return phase.message;
+    case "failed":
+      return phase.message;
+  }
+}
+
+/** Progress from 0 to 1 for the row's status ring, when there is one. */
+export function phaseProgress(phase: Phase): number | null {
+  if (phase.phase === "downloading" && phase.total) return phase.received / phase.total;
+  if (phase.phase === "verifying") return 1;
+  return null;
+}
+
+/**
+ * Loose matching for the command palette: every character of the query
+ * appears in order. Returns a score (lower is better) or null for no match.
+ */
+export function fuzzy(text: string, query: string): number | null {
+  const t = text.toLowerCase();
+  const q = query.toLowerCase().replace(/\s+/g, "");
+  if (!q) return 0;
+  const direct = t.indexOf(q);
+  if (direct >= 0) return direct === 0 ? 0 : 1 + direct / 100;
+  let at = 0;
+  let gaps = 0;
+  for (const ch of q) {
+    const found = t.indexOf(ch, at);
+    if (found < 0) return null;
+    gaps += found - at;
+    at = found + 1;
+  }
+  return 10 + gaps;
 }
 
 /** What the "other" tab says about a row. */

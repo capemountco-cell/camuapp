@@ -21,10 +21,13 @@ known ways. These are the complaints, and Camu's answer to each one.
 
 ## Order of work
 
+Done: 1, 2 and 3. Next: 4.
+
 1. **Coverage.** Scanning and every checker, all tested against fixtures in the
    core crate.
-2. **The list.** The black UI: updates first, then up to date, then
-   unsupported; ignore; release notes.
+2. **The list.** Black only, in Linear's design language: a sidebar of views,
+   a list grouped by how each update installs, a detail panel, a ⌘K command
+   menu, and single-key shortcuts (j/k, Enter, U, I, G then a view).
 3. **Updating.** Homebrew batch, App Store hand-off, download → verify the
    signature matches the installed app's team → back up → replace, with a
    single admin prompt for the batch. Roll back.

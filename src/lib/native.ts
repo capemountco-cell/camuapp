@@ -57,6 +57,26 @@ export interface Report {
   homebrewCask: string | null;
 }
 
+/** Where an update is up to (mirrors camu_core::update::Phase). */
+export type Phase =
+  | { phase: "queued" }
+  | { phase: "downloading"; received: number; total: number | null }
+  | { phase: "verifying" }
+  | { phase: "waiting"; message: string }
+  | { phase: "installing" }
+  | { phase: "done"; version: string }
+  | { phase: "handoff"; message: string }
+  | { phase: "failed"; message: string };
+
+export type UpdateEvent = Phase & { id: string };
+
+export interface Backup {
+  bundleId: string;
+  version: string;
+  path: string;
+  newest: boolean;
+}
+
 /** True inside the Tauri window; false in a plain browser tab. */
 export function nativeAvailable(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -79,6 +99,19 @@ export async function onReport(handler: (report: Report) => void): Promise<Unlis
   if (!nativeAvailable()) return () => {};
   return listen<Report>("camu://report", (event) => handler(event.payload));
 }
+
+/** Update apps by id. Resolves when the whole run is over. */
+export const updateApps = (ids: string[]) => call<void>("update_apps", { ids });
+
+export async function onUpdate(handler: (event: UpdateEvent) => void): Promise<UnlistenFn> {
+  if (!nativeAvailable()) return () => {};
+  return listen<UpdateEvent>("camu://update", (event) => handler(event.payload));
+}
+
+export const listBackups = () => call<Backup[]>("list_backups");
+
+/** Restore an app's newest backup. Resolves with the restored version. */
+export const rollBack = (path: string) => call<string>("roll_back", { path });
 
 export const appIcon = (path: string, iconFile: string) =>
   call<string | null>("app_icon", { path, iconFile });
