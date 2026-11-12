@@ -11,18 +11,18 @@
 :root {
   color-scheme: dark;
 
-  /* Surfaces, sampled from Linear's own screens: the chrome is a mid-dark
-     grey, the content container sits darker inside it, and cards lift back
-     up off the container. Each step is big enough to see. */
-  --bg: #18181a;
-  --panel: #131315;
-  --raised: #19191b;
-  --hover: #1f1f22;
-  --active: #26262a;
+  /* Surfaces, measured from Linear side by side with Camu: the chrome is the
+     darkest grey, the content container is lighter, and cards are lighter
+     again. Each step is big enough to see. */
+  --bg: #141416;
+  --panel: #18181a;
+  --raised: #1c1c1e;
+  --hover: #202022;
+  --active: #252527;
 
-  /* Hairlines. */
-  --line: #232326;
-  --line-strong: #2d2d31;
+  /* Hairlines (Linear: container #222224, cards #202022). */
+  --line: #222224;
+  --line-strong: #2c2c2f;
 
   /* Text, three clear steps (sampled: #dddde7 / #949496 / #6c6d6f). */
   --text: #e6e6ea;
@@ -218,7 +218,7 @@ p {
 }
 
 .tool.current {
-  background: #232326;
+  background: #1c1d1f;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   color: var(--text);
   font-weight: 600;
@@ -248,7 +248,7 @@ p {
   box-sizing: border-box;
   border-radius: 8px;
   background: var(--s-update);
-  color: #18181a;
+  color: var(--bg);
   font-size: 11px;
   font-weight: 700;
   line-height: 16px;
@@ -295,10 +295,10 @@ p {
   min-height: 0;
   /* Inset on every side, so the container's curve reads against the chrome. */
   margin: 4px 12px 12px;
-  border: 1px solid #1f1f22;
+  border: 1px solid var(--line);
   border-radius: 14px;
   background:
-    radial-gradient(110% 80% at 0% 0%, #17171a 0%, rgba(23, 23, 26, 0) 60%),
+    radial-gradient(110% 80% at 0% 0%, #1b1b1d 0%, rgba(27, 27, 29, 0) 60%),
     var(--panel);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   overflow: hidden;
@@ -481,7 +481,7 @@ kbd {
   gap: 8px;
   height: 38px;
   padding: 0 16px;
-  background: #1c1c1f;
+  background: #1f1f21;
   border-bottom: 1px solid var(--line);
   color: var(--secondary);
   font-weight: 500;
@@ -531,7 +531,7 @@ kbd {
   padding: 0 10px 0 7px;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
-  background: #0f0f11;
+  background: var(--bg);
   color: var(--secondary);
   font-variant-numeric: tabular-nums;
 }
