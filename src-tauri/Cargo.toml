@@ -17,7 +17,8 @@ tauri-build = { version = "2", features = [] }
 camu-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "2"
 
 [features]
 # Turned on by `tauri build`. Serves the bundled frontend instead of devUrl.

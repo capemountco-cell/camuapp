@@ -13,6 +13,8 @@ pub mod macos;
 pub mod notes;
 pub mod platform;
 pub mod scan;
+pub mod selfupdate;
+pub mod settings;
 pub mod sources;
 pub mod update;
 pub mod version;

@@ -6,6 +6,7 @@ import {
   group,
   loadPrefs,
   matches,
+  mergeLegacy,
   phaseLabel,
   savePrefs,
   toggle,
@@ -124,5 +125,17 @@ describe("command palette matching", () => {
     expect(fuzzy("Check for updates", "updates")!).toBeLessThan(10);
     expect(fuzzy("Visual Studio Code", "vsc")!).toBeGreaterThanOrEqual(10);
     expect(fuzzy("Arc", "xyz")).toBeNull();
+  });
+});
+
+describe("settings migration", () => {
+  it("merges old ignore and beta lists once", () => {
+    const stored = { ignored: ["a"], beta: [], notify: true };
+    expect(mergeLegacy(stored, { ignored: ["a", "b"], beta: ["c"] })).toEqual({
+      ignored: ["a", "b"],
+      beta: ["c"],
+      notify: true,
+    });
+    expect(mergeLegacy(stored, { ignored: ["a"], beta: [] })).toBeNull();
   });
 });

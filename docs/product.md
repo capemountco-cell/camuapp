@@ -21,7 +21,7 @@ known ways. These are the complaints, and Camu's answer to each one.
 
 ## Order of work
 
-Done: 1, 2 and 3. Next: 4.
+Done: 1, 2, 3 and 4.
 
 1. **Coverage.** Scanning and every checker, all tested against fixtures in the
    core crate.
@@ -31,8 +31,11 @@ Done: 1, 2 and 3. Next: 4.
 3. **Updating.** Homebrew batch, App Store hand-off, download → verify the
    signature matches the installed app's team → back up → replace, with a
    single admin prompt for the batch. Roll back.
-4. **Living with it.** Menu bar mode, scheduled checks, notifications, Camu
-   updating itself.
+4. **Living with it.** A menu bar icon with the update count and Update All;
+   background checks on a schedule; one notification per new version;
+   optional automatic installs (one-click updates only, off by default);
+   Camu updating itself in place when signed with a Developer ID, or showing
+   the release to download when it isn't.
 
 ## Safety rules for installing
 

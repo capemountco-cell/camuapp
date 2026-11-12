@@ -1,5 +1,6 @@
 import type { Tab } from "../lib/model";
-import { ArrowUpCircle, CheckCircle, EyeOff, Mark, Question, Refresh, Search } from "./Icons";
+import type { SelfUpdate } from "../lib/native";
+import { ArrowUpCircle, CheckCircle, EyeOff, Gear, Mark, Question, Refresh, Search } from "./Icons";
 import { Kbd } from "./Kbd";
 
 const VIEWS: { id: Tab; label: string; icon: React.ReactNode; keys: string[] }[] = [
@@ -9,17 +10,20 @@ const VIEWS: { id: Tab; label: string; icon: React.ReactNode; keys: string[] }[]
   { id: "ignored", label: "Ignored", icon: <EyeOff />, keys: ["G", "I"] },
 ];
 
+export type View = Tab | "settings";
+
 interface Props {
-  tab: Tab;
+  view: View;
+  selfUpdate: SelfUpdate | null;
   counts: Record<Tab, number>;
   checking: boolean;
   status: string;
-  onTab: (tab: Tab) => void;
+  onTab: (view: View) => void;
   onCheck: () => void;
   onPalette: () => void;
 }
 
-export function Sidebar({ tab, counts, checking, status, onTab, onCheck, onPalette }: Props) {
+export function Sidebar({ view, selfUpdate, counts, checking, status, onTab, onCheck, onPalette }: Props) {
   return (
     <nav className="sidebar" aria-label="Views">
       <div className="brand">
@@ -38,7 +42,7 @@ export function Sidebar({ tab, counts, checking, status, onTab, onCheck, onPalet
           <button
             key={v.id}
             type="button"
-            className={`side-item${tab === v.id ? " active" : ""}`}
+            className={`side-item${view === v.id ? " active" : ""}`}
             onClick={() => onTab(v.id)}
             title={`${v.label} (${v.keys.join(" then ")})`}
           >
@@ -50,6 +54,21 @@ export function Sidebar({ tab, counts, checking, status, onTab, onCheck, onPalet
       </div>
 
       <div className="side-foot">
+        {selfUpdate && (
+          <button type="button" className="side-notice" onClick={() => onTab("settings")}>
+            <span className="dot" aria-hidden />
+            Camu {selfUpdate.version} is available
+          </button>
+        )}
+        <button
+          type="button"
+          className={`side-item${view === "settings" ? " active" : ""}`}
+          onClick={() => onTab("settings")}
+        >
+          <Gear />
+          <span className="side-label">Settings</span>
+          <Kbd keys={["⌘", ","]} />
+        </button>
         <button type="button" className="side-item" onClick={onCheck} disabled={checking}>
           <Refresh className={checking ? "i spin" : "i"} />
           <span className="side-label">{checking ? "Checking…" : "Check for updates"}</span>
