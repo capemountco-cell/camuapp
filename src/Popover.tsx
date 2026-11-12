@@ -136,7 +136,7 @@ export function Popover() {
           Open Camu
         </button>
         {waiting.length > 0 && (
-          <button type="button" className="btn primary" disabled={busy} onClick={() => update(waiting.map((r) => r.id))}>
+          <button type="button" className="btn go" disabled={busy} onClick={() => update(waiting.map((r) => r.id))}>
             Update all {waiting.length}
           </button>
         )}

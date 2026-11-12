@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CommandPalette, type PaletteCommand } from "./components/CommandPalette";
 import { DetailPanel } from "./components/DetailPanel";
+import { FilterMenu } from "./components/FilterMenu";
 import { ArrowUpCircle, CheckCircle, EyeOff, Folder, Question, Refresh, Undo } from "./components/Icons";
 import { Kbd } from "./components/Kbd";
 import { Row } from "./components/Row";
@@ -13,12 +14,14 @@ import {
   isOneClick,
   clearPrefs,
   loadPrefs,
-  matches,
+  bySource,
+  sourceCounts,
   mergeLegacy,
   toggle,
   updateGroupLabel,
   updateGroups,
   type Row as RowData,
+  type SourceFilter,
   type Tab,
 } from "./lib/model";
 import {
@@ -103,13 +106,12 @@ export function App() {
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [view, setView] = useState<View>("updates");
   const tab: Tab = view === "settings" ? "updates" : view;
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useState<SourceFilter>("all");
   const [selected, setSelected] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [palette, setPalette] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [now, setNow] = useState(() => Date.now());
-  const filterInput = useRef<HTMLInputElement>(null);
   const rowRefs = useRef(new Map<string, HTMLLIElement>());
   const pendingG = useRef<number | null>(null);
 
@@ -215,7 +217,8 @@ export function App() {
     [apps, reports],
   );
   const tabs = useMemo(() => group(rows, prefs.ignored), [rows, prefs.ignored]);
-  const visible = useMemo(() => tabs[tab].filter((r) => matches(r, filter)), [tabs, tab, filter]);
+  const visible = useMemo(() => tabs[tab].filter((r) => bySource(r, filter)), [tabs, tab, filter]);
+  const filterCounts = useMemo(() => sourceCounts(tabs[tab]), [tabs, tab]);
   const groups = useMemo(
     () =>
       tab === "updates"
@@ -329,15 +332,14 @@ export function App() {
         return;
       }
       if (e.metaKey && key === "f") {
+        // Finding an app by name is the command menu's job.
         e.preventDefault();
-        filterInput.current?.focus();
+        setPalette(true);
         return;
       }
       if (e.key === "Escape") {
-        if (typing) {
-          setFilter("");
-          (e.target as HTMLElement).blur();
-        } else if (panelOpen) setPanelOpen(false);
+        if (typing) (e.target as HTMLElement).blur();
+        else if (panelOpen) setPanelOpen(false);
         else setSelected(null);
         return;
       }
@@ -368,7 +370,7 @@ export function App() {
         }
       } else if (key === "/") {
         e.preventDefault();
-        filterInput.current?.focus();
+        setPalette(true);
       } else if (key === "u" && selectedRow?.report?.status === "updateAvailable") {
         act.update(selectedRow);
       } else if (key === "i" && selectedRow) {
@@ -462,7 +464,7 @@ export function App() {
       run: () => {
         const target = (Object.keys(tabs) as Tab[]).find((t) => tabs[t].includes(row));
         if (target) setView(target);
-        setFilter("");
+        setFilter("all");
         setSelected(row.app.path);
         setPanelOpen(true);
       },
@@ -505,34 +507,30 @@ export function App() {
           <h1>{TAB_TITLE[view]}</h1>
           {view !== "settings" && <span className="header-count">{counts[tab]}</span>}
           <span className="spacer" />
-          {view !== "settings" && (
-          <input
-            ref={filterInput}
-            className="filter"
-            type="search"
-            placeholder="Filter"
-            aria-label="Filter apps"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            spellCheck={false}
-          />
-          )}
-          {view === "updates" && (
-            <button
-              type="button"
-              className="btn primary"
-              onClick={updateAll}
-              disabled={updating || checking || pending.length === 0}
-              title={
-                oneClick.length < pending.length
-                  ? `${oneClick.length} install here; ${pending.length - oneClick.length} finish in the App Store or the app`
-                  : undefined
-              }
-            >
-              {updating ? "Updating…" : pending.length ? `Update all ${pending.length}` : "Update all"}
-              {!updating && pending.length > 0 && <Kbd keys={["⌘", "U"]} />}
-            </button>
-          )}
+          {view !== "settings" && <FilterMenu value={filter} counts={filterCounts} onChange={setFilter} />}
+          {view === "updates" &&
+            (pending.length === 0 && !updating && !checking && lastChecked ? (
+              <span className="btn ok" role="status">
+                <CheckCircle className="i" />
+                All up to date
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="btn go"
+                onClick={updateAll}
+                disabled={updating || checking || pending.length === 0}
+                title={
+                  oneClick.length < pending.length
+                    ? `${oneClick.length} install here; ${pending.length - oneClick.length} finish in the App Store or the app`
+                    : undefined
+                }
+              >
+                <ArrowUpCircle className="i" />
+                {updating ? "Updating…" : pending.length ? `Update all ${pending.length}` : "Update all"}
+                {!updating && pending.length > 0 && <Kbd keys={["⌘", "U"]} />}
+              </button>
+            ))}
         </header>
 
         {view === "settings" ? (
@@ -575,8 +573,8 @@ export function App() {
               </ul>
             ) : visible.length === 0 ? (
               <div className="empty">
-                {filter ? (
-                  <p className="faint">No apps match “{filter}”</p>
+                {filter !== "all" ? (
+                  <p className="faint">Nothing here from this source</p>
                 ) : tab === "updates" && checking ? (
                   <p className="faint">Looking for updates…</p>
                 ) : tab === "updates" && lastChecked ? (

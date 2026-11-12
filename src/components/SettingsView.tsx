@@ -104,7 +104,7 @@ export function SettingsView({ settings, version, selfUpdate, checkingSelf, onCh
         >
           {selfUpdate ? (
             selfUpdate.canInstall ? (
-              <button type="button" className="btn primary" onClick={onInstallSelf}>
+              <button type="button" className="btn go" onClick={onInstallSelf}>
                 Install and relaunch
               </button>
             ) : (
