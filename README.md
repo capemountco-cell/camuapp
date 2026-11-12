@@ -1,46 +1,26 @@
-# Mac App Template
+# Camu
 
-A starting point for native macOS apps that build a working `.dmg` from day
-one. Tauri 2, Rust and React, with every known way the `.dmg` step fails
-handled by the scripts rather than by you.
+Keeps every app on your Mac up to date. Black by default, one line per app,
+no accounts, no tracking.
 
-## Start a new app
+Camu checks each app against every source that knows it (its Sparkle
+appcast, its Electron update feed, the Mac App Store, GitHub releases and
+Homebrew's cask catalogue) and believes the most trusted one that answers.
+See [docs/product.md](docs/product.md) for what it must do better than the
+alternatives, and the order of work.
 
-Create an empty GitHub repository for the app, open a Claude chat with it
-selected, and paste the prompt in [docs/new-app.md](docs/new-app.md). The
-chat copies this template in, names it, and checks that the `.dmg` builds.
+Built with Tauri 2, Rust and React, from the Mac App Template.
 
-### Or do it yourself
+## Where things live
 
-1. On GitHub, click **Use this template** > **Create a new repository**.
-2. Clone it, then name it:
-
-   ```sh
-   npm install
-   npm run init -- --name "My App" --id com.yourname.myapp
-   ```
-
-3. Check this Mac has what it needs, and fix anything it lists:
-
-   ```sh
-   npm run doctor
-   ```
-
-4. Run it:
-
-   ```sh
-   npm run dev
-   ```
-
-5. Package it:
-
-   ```sh
-   npm run dmg
-   ```
-
-   The image lands at `release/My App-0.1.0-arm64.dmg`, already checked:
-   it mounts, holds the app and an Applications link, and the signature is
-   valid.
+| Path | What |
+|---|---|
+| `crates/camu-core/src/scan.rs`, `app.rs` | Finding installed apps and reading their bundles |
+| `crates/camu-core/src/sources/` | One module per update source |
+| `crates/camu-core/src/check.rs` | Asking the sources and deciding what to believe |
+| `crates/camu-core/src/version.rs` | Comparing version strings |
+| `src-tauri/src/lib.rs` | Thin IPC commands |
+| `src/` | The UI. Every call to Rust goes through `src/lib/native.ts` |
 
 ## Everyday commands
 

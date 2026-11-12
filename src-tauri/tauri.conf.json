@@ -13,12 +13,14 @@
     "windows": [
       {
         "title": "Camu",
-        "width": 1000,
-        "height": 700,
-        "minWidth": 640,
+        "width": 860,
+        "height": 640,
+        "minWidth": 620,
         "minHeight": 480,
         "center": true,
-        "resizable": true
+        "resizable": true,
+        "theme": "Dark",
+        "backgroundColor": "#000000"
       }
     ],
     "security": {
@@ -37,7 +39,7 @@
     ],
     "category": "Utility",
     "copyright": "",
-    "shortDescription": "A native macOS app.",
+    "shortDescription": "Keeps every app on your Mac up to date.",
     "macOS": {
       "minimumSystemVersion": "12.0",
       "entitlements": "entitlements.plist",
