@@ -1,174 +1,86 @@
-import { useEffect, useState } from "react";
-
 import type { Tab } from "../lib/model";
 import type { SelfUpdate } from "../lib/native";
-import { ArrowUpCircle, CheckCircle, Gear, Mark, Refresh, Search } from "./Icons";
-import { Kbd } from "./Kbd";
+import { ArrowUpCircle, CheckCircle, EyeOff, Gear, Mark, Question, Refresh, Search } from "./Icons";
 
 export type View = Tab | "settings";
 
-const PLACES: { id: Tab; label: string; keys: string }[] = [
-  { id: "updates", label: "Updates", keys: "G then U" },
-  { id: "current", label: "Up to date", keys: "G then C" },
-  { id: "other", label: "Unsupported", keys: "G then S" },
-  { id: "ignored", label: "Ignored", keys: "G then I" },
+const PLACES: { id: Tab; label: string; keys: string; icon: React.ReactNode }[] = [
+  { id: "updates", label: "Updates", keys: "G then U", icon: <ArrowUpCircle className="i tool-icon" /> },
+  { id: "current", label: "Up to date", keys: "G then C", icon: <CheckCircle className="i tool-icon" /> },
+  { id: "other", label: "Unsupported", keys: "G then S", icon: <Question className="i tool-icon" /> },
+  { id: "ignored", label: "Ignored", keys: "G then I", icon: <EyeOff className="i tool-icon" /> },
 ];
-
-/** What the status switcher says, and its colour. */
-export interface Status {
-  tone: "none" | "update" | "working" | "done";
-  title: string;
-  line: string;
-}
 
 interface Props {
   view: View;
   counts: Record<Tab, number>;
-  status: Status;
   checking: boolean;
-  canUpdateAll: number;
   selfUpdate: SelfUpdate | null;
   onView: (view: View) => void;
   onCheck: () => void;
-  onUpdateAll: () => void;
   onPalette: () => void;
 }
 
 /**
- * The global bar, built like Banker's: the Camu mark, the four places in a
- * segmented control, and a status switcher that says what Camu is doing and
- * opens the actions. It is also the window's title bar: the window buttons
- * sit at its left end, and empty space drags the window.
+ * The window's top, laid out like a classic Mac toolbar (MacUpdater's):
+ * the title row holds the window buttons and Camu's logo, centred; the row
+ * below holds large icon-and-label buttons, the places on the left and the
+ * actions on the right. Empty space in either row drags the window.
  */
-export function TopBar(props: Props) {
-  const { view, counts, status, onView } = props;
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, [open]);
-
-  const run = (action: () => void) => () => {
-    setOpen(false);
-    action();
-  };
-
+export function TopBar({ view, counts, checking, selfUpdate, onView, onCheck, onPalette }: Props) {
   return (
-    <>
-      <header className="globalnav" data-tauri-drag-region>
-        <button type="button" className="brand" onClick={() => onView("updates")}>
+    <header className="toolbar-shell" data-tauri-drag-region>
+      <div className="titlerow" data-tauri-drag-region>
+        <span className="title-logo" data-tauri-drag-region>
           <Mark />
-          Camu
-        </button>
+          <span data-tauri-drag-region>Camu</span>
+        </span>
+      </div>
 
-        <nav aria-label="Main" className="places" data-tauri-drag-region>
+      <nav className="toolrow" aria-label="Main" data-tauri-drag-region>
+        <div className="toolgroup" data-tauri-drag-region>
           {PLACES.map((p) => (
             <button
               key={p.id}
               type="button"
-              className={view === p.id ? "current" : ""}
+              className={`tool${view === p.id ? " current" : ""}`}
               aria-current={view === p.id ? "page" : undefined}
               title={`${p.label} (${p.keys})`}
               onClick={() => onView(p.id)}
             >
-              {p.label}
-              {counts[p.id] > 0 && (
-                <span className={`place-count${p.id === "updates" ? " hot" : ""}`}>{counts[p.id]}</span>
-              )}
+              {p.icon}
+              <span className="tool-label">{p.label}</span>
+              {p.id === "updates" && counts.updates > 0 && <span className="tool-badge">{counts.updates}</span>}
             </button>
           ))}
-        </nav>
-
-        <button
-          type="button"
-          className={`switcher tone-${status.tone}`}
-          aria-expanded={open}
-          aria-haspopup="menu"
-          onClick={() => setOpen(!open)}
-        >
-          <span className="switcher-tile" aria-hidden>
-            {status.tone === "working" ? (
-              <Refresh className="i spin" />
-            ) : status.tone === "update" ? (
-              <ArrowUpCircle />
-            ) : status.tone === "done" ? (
-              <CheckCircle />
-            ) : (
-              <span className="switcher-dot" />
-            )}
-          </span>
-          <span className="switcher-text">
-            <span className="switcher-name">{status.title}</span>
-            <span className="switcher-line">{status.line}</span>
-          </span>
-          {props.selfUpdate && <span className="badge-dot" aria-label="Camu update available" />}
-          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className="chevron">
-            <path
-              d={open ? "M3 7.5 6 4.5l3 3" : "M3 4.5 6 7.5l3-3"}
-              stroke="currentColor"
-              strokeWidth="1.6"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-      </header>
-
-      {open && (
-        <>
-          <div className="menu-scrim" onClick={() => setOpen(false)} role="presentation" />
-          <section className="status-menu" role="menu" aria-label="Actions">
-            <button
-              type="button"
-              role="menuitem"
-              className="status-item"
-              disabled={props.checking}
-              onClick={run(props.onCheck)}
-            >
-              <Refresh />
-              <span>{props.checking ? "Checking…" : "Check for updates"}</span>
-              <Kbd keys={["⌘", "R"]} />
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="status-item"
-              disabled={props.canUpdateAll === 0}
-              onClick={run(props.onUpdateAll)}
-            >
-              <ArrowUpCircle />
-              <span>{props.canUpdateAll > 0 ? `Update all ${props.canUpdateAll}` : "Update all"}</span>
-              <Kbd keys={["⌘", "U"]} />
-            </button>
-            <button type="button" role="menuitem" className="status-item" onClick={run(props.onPalette)}>
-              <Search />
-              <span>Search or run a command</span>
-              <Kbd keys={["⌘", "K"]} />
-            </button>
-            <div className="menu-rule" />
-            <button type="button" role="menuitem" className="status-item" onClick={run(() => onView("settings"))}>
-              <Gear />
-              <span>Settings</span>
-              <Kbd keys={["⌘", ","]} />
-            </button>
-            {props.selfUpdate && (
-              <button
-                type="button"
-                role="menuitem"
-                className="status-item notice"
-                onClick={run(() => onView("settings"))}
-              >
-                <span className="dot" aria-hidden />
-                <span>Camu {props.selfUpdate.version} is available</span>
-              </button>
-            )}
-          </section>
-        </>
-      )}
-    </>
+        </div>
+        <div className="toolgroup" data-tauri-drag-region>
+          <button
+            type="button"
+            className="tool narrow"
+            onClick={onCheck}
+            disabled={checking}
+            title="Check for updates (⌘R)"
+          >
+            <Refresh className={checking ? "i tool-icon spin" : "i tool-icon"} />
+            <span className="tool-label">{checking ? "Checking…" : "Check"}</span>
+          </button>
+          <button type="button" className="tool narrow" onClick={onPalette} title="Search or run a command (⌘K)">
+            <Search className="i tool-icon" />
+            <span className="tool-label">Search</span>
+          </button>
+          <button
+            type="button"
+            className={`tool narrow${view === "settings" ? " current" : ""}`}
+            onClick={() => onView("settings")}
+            title={selfUpdate ? `Settings — Camu ${selfUpdate.version} is available` : "Settings (⌘,)"}
+          >
+            <Gear className="i tool-icon" />
+            <span className="tool-label">Settings</span>
+            {selfUpdate && <span className="tool-dot" aria-label="Camu update available" />}
+          </button>
+        </div>
+      </nav>
+    </header>
   );
 }
