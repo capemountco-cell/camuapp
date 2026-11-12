@@ -96,6 +96,23 @@ export function group(rows: Row[], ignored: string[]): Record<Tab, Row[]> {
   return out;
 }
 
+/** Narrow a list to apps whose answer came from one update source. */
+export type SourceFilter = Source | "all";
+
+export function bySource(row: Row, filter: SourceFilter): boolean {
+  return filter === "all" || row.report?.best?.source === filter;
+}
+
+/** How many rows each source filter would leave. */
+export function sourceCounts(rows: Row[]): Record<SourceFilter, number> {
+  const counts: Record<SourceFilter, number> = { all: rows.length, homebrew: 0, sparkle: 0, appStore: 0, electron: 0, github: 0 };
+  for (const row of rows) {
+    const s = row.report?.best?.source;
+    if (s) counts[s] += 1;
+  }
+  return counts;
+}
+
 export function matches(row: Row, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;

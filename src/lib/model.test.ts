@@ -6,6 +6,8 @@ import {
   group,
   loadPrefs,
   matches,
+  bySource,
+  sourceCounts,
   mergeLegacy,
   phaseLabel,
   savePrefs,
@@ -137,5 +139,17 @@ describe("settings migration", () => {
       notify: true,
     });
     expect(mergeLegacy(stored, { ignored: ["a"], beta: [] })).toBeNull();
+  });
+});
+
+describe("source filter", () => {
+  it("narrows to one source and counts each", () => {
+    const a = app("A");
+    const b = app("B");
+    const ra: Row = { app: a, report: { ...report(a, "updateAvailable"), best: { source: "homebrew" } as Report["best"] } };
+    const rb: Row = { app: b, report: { ...report(b, "updateAvailable"), best: { source: "sparkle" } as Report["best"] } };
+    expect([ra, rb].filter((r) => bySource(r, "homebrew"))).toEqual([ra]);
+    expect([ra, rb].filter((r) => bySource(r, "all"))).toHaveLength(2);
+    expect(sourceCounts([ra, rb])).toMatchObject({ all: 2, homebrew: 1, sparkle: 1, appStore: 0 });
   });
 });

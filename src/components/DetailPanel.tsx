@@ -47,7 +47,7 @@ export function DetailPanel(props: Props) {
 
       <div className="panel-body">
         {hasUpdate && (
-          <button type="button" className="btn primary wide" onClick={props.onUpdate} disabled={busy}>
+          <button type="button" className="btn go wide" onClick={props.onUpdate} disabled={busy}>
             {busy ? phaseLabel(phase!) : `Update to ${best?.version}`}
             {!busy && <Kbd keys={["U"]} />}
           </button>
