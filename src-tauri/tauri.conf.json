@@ -21,7 +21,7 @@
         "center": true,
         "resizable": true,
         "theme": "Dark",
-        "backgroundColor": "#101012",
+        "backgroundColor": "#0b0c0e",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": { "x": 18, "y": 14 }

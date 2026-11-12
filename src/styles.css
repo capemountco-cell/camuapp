@@ -11,22 +11,25 @@
 :root {
   color-scheme: dark;
 
-  /* Surfaces, darkest first: chrome, container, then raised layers. */
-  --bg: #101012;
-  --panel: #191a1c;
-  --raised: #1f2023;
-  --hover: #242528;
-  --active: #2b2c30;
+  /* Surfaces, darkest first, all with Linear's faint blue cast (LCH hue
+     ~264): the chrome, the container lifted off it, then raised layers.
+     Depth comes from these small lightness steps, not shadows. */
+  --bg: #0b0c0e;
+  --panel: #141518;
+  --raised: #191a1e;
+  --hover: #1e1f24;
+  --active: #25272c;
 
-  /* Hairlines: light at low alpha, so they read the same on every grey. */
-  --line: rgba(255, 255, 255, 0.06);
-  --line-strong: rgba(255, 255, 255, 0.1);
+  /* Hairlines. */
+  --line: #23252a;
+  --line-strong: #2e3036;
 
-  /* Text. */
-  --text: #ededef;
-  --secondary: #b4b4bb;
-  --muted: #8e8e96;
-  --faint: #6b6b73;
+  /* Text, in steps. Faint fails body-text contrast (about 3.6:1): it is
+     for decoration and timestamps only, never for a label you must read. */
+  --text: #f7f8f8;
+  --secondary: #c9ccd3;
+  --muted: #8a8f98;
+  --faint: #62666d;
 
   /* Colour, used sparingly and never twice for different things. */
   --accent: #5e6ad2;
@@ -44,12 +47,12 @@
   --src-github: #c4c4cc;
   --src-homebrew: #f2994a;
 
-  --radius: 6px;
-  --row: 38px;
+  --radius: 8px;
+  --row: 34px;
   --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
 
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.45;
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
@@ -176,7 +179,7 @@ p {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  padding: 0 12px 8px;
+  padding: 0 12px 4px;
 }
 
 .toolgroup {
@@ -245,8 +248,8 @@ p {
   padding: 0 5px;
   box-sizing: border-box;
   border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--text);
+  color: var(--bg);
   font-size: 11px;
   font-weight: 700;
   line-height: 16px;
@@ -261,7 +264,7 @@ p {
   height: 8px;
   border: 2px solid var(--bg);
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--s-update);
 }
 
 .icon-btn {
@@ -291,13 +294,13 @@ p {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  margin: 0 8px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 12px;
+  /* Inset on every side, so the container's curve reads against the chrome. */
+  margin: 4px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
   background:
-    radial-gradient(1100px 420px at 0 0, rgba(255, 255, 255, 0.028), transparent 65%),
+    radial-gradient(1100px 420px at 0 0, rgba(255, 255, 255, 0.025), transparent 65%),
     var(--panel);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
   overflow: hidden;
 }
 
@@ -484,7 +487,7 @@ kbd {
   align-items: center;
   gap: 12px;
   height: var(--row);
-  padding: 0 20px;
+  padding: 6px 20px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
   white-space: nowrap;
 }
@@ -495,7 +498,7 @@ kbd {
 
 .row.selected {
   background: var(--hover);
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: inset 2px 0 0 var(--muted);
 }
 
 .row.open {
