@@ -11,6 +11,16 @@ alternatives, and the order of work.
 
 Built with Tauri 2, Rust and React, from the Mac App Template.
 
+## Download
+
+Get the latest `.dmg` from
+[Releases](https://github.com/capemountco-cell/camuapp/releases/latest). It is
+one universal build for Apple silicon and Intel, and needs macOS 12 or newer.
+
+Builds are not yet signed with an Apple Developer ID, so the first time you
+open Camu macOS says it "cannot be verified". Approve it once in System
+Settings > Privacy & Security > Open Anyway.
+
 ## Where things live
 
 | Path | What |
@@ -38,14 +48,23 @@ Built with Tauri 2, Rust and React, from the Mac App Template.
 
 ## Releasing
 
+Set the version and merge it to `main`:
+
 ```sh
 npm run set-version -- 1.0.0
 git commit -am "Release 1.0.0"
-git tag v1.0.0
-git push && git push --tags
 ```
 
-GitHub Actions builds a universal `.dmg` and attaches it to a GitHub release.
+Then start the release in either of two ways:
+
+- **Run workflow** (what Camu's releases use): on GitHub, open Actions >
+  Release > Run workflow, choose `main` and enter the version (`1.0.0`, the
+  same as `package.json`). GitHub creates the `v1.0.0` tag and the release
+  itself.
+- **Push a tag**, where tag pushes are allowed:
+  `git tag v1.0.0 && git push --tags`.
+
+Either way, GitHub Actions builds a universal `.dmg` and attaches it to a GitHub release.
 It is signed and notarized if you have added Apple credentials as secrets
 ([docs/signing.md](docs/signing.md)), and ad-hoc signed otherwise.
 
@@ -55,18 +74,18 @@ to the run, so a change that breaks packaging is caught on the day it is made.
 ## Layout
 
 ```
-crates/starter-core/   The app's logic. No Tauri, so it tests on any OS.
-src-tauri/             The native shell: window, commands, bundling config.
+crates/camu-core/      The app's logic. No Tauri, so it tests on any OS.
+src-tauri/             The native shell: window, menu bar icon, commands, bundling config.
   tauri.conf.json      Name, id, window, .dmg layout, signing.
   entitlements.plist   What the hardened runtime allows.
   app-icon.png         The one icon you edit; npm run icons makes the rest.
-src/                   The React interface.
+src/                   The React interface (main window and menu bar panel).
   lib/native.ts        Every call from the UI to Rust, in one place.
-scripts/               doctor, init, build-dmg, verify-dmg, set-version.
-docs/                  dmg.md (failures and fixes), signing.md.
+scripts/               doctor, build-dmg, verify-dmg, set-version.
+docs/                  product.md (what Camu must do better), dmg.md (failures
+                       and fixes), signing.md.
+.github/workflows/     ci.yml (every push), release.yml (releases).
 ```
-
-`init` renames `starter` and `starter-core` to your app's name.
 
 ## Requirements
 
