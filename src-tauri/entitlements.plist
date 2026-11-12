@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Entitlements for the hardened runtime, which notarization requires.
+      Add only what the app needs. Common additions:
+
+        com.apple.security.network.client       outbound network
+        com.apple.security.files.user-selected.read-write
+                                                  files the user picks
+        com.apple.security.app-sandbox          Mac App Store builds
+
+      The app is not sandboxed by default: a sandbox is required for the Mac
+      App Store and gets in the way for apps distributed as a .dmg.
+    -->
+</dict>
+</plist>

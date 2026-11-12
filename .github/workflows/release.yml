@@ -1,0 +1,94 @@
+name: Release
+
+# Push a tag like v1.2.0 and this builds a universal .dmg (Apple silicon and
+# Intel in one file) and attaches it to a GitHub release.
+#
+# Signing and notarization happen only when the secrets below exist. Without
+# them the .dmg is ad-hoc signed, which works but asks downloaders to approve
+# it once in System Settings. See docs/signing.md.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    name: Universal .dmg
+    runs-on: macos-latest
+    env:
+      # Secrets cannot be read in an `if:`, so expose only whether one is set.
+      HAS_SIGNING_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          have="$(node -p 'require("./package.json").version')"
+          if [ "$want" != "$have" ]; then
+            echo "::error::Tag is v$want but package.json says $have. Run: npm run set-version -- $want"
+            exit 1
+          fi
+
+      - name: Import the signing certificate
+        if: env.HAS_SIGNING_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/build.keychain"
+          password="$(openssl rand -base64 24)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Build, sign, notarize and verify
+        env:
+          # Read by Tauri's bundler. Empty means ad-hoc signing and no notarization.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Unset empty values so Tauri falls back to the config instead of
+          # trying to sign with an identity called "".
+          for v in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!v}" ] || unset "$v"
+          done
+          npm run dmg:universal
+
+      - name: Attach to a GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dmg="$(ls release/*.dmg)"
+          shasum -a 256 "$dmg" > "$dmg.sha256"
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" "$dmg" "$dmg.sha256" --clobber
+
+      - name: Upload the .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg-universal
+          path: release/*.dmg
+          if-no-files-found: error

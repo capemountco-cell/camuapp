@@ -1,0 +1,9 @@
+[package]
+name = "camu-core"
+description = "The app's logic. No Tauri, no UI: builds and tests on any OS."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
