@@ -180,6 +180,9 @@ export function App() {
         refreshBackups();
       }),
       events.selfUpdate(setSelfUpdate),
+      events.navigate((v) => {
+        if (["updates", "current", "other", "ignored", "settings"].includes(v)) setView(v as View);
+      }),
       events.select((id) => {
         setSelected(id);
         setPanelOpen(true);

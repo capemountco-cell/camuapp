@@ -1041,3 +1041,145 @@ kbd {
 .select:focus {
   border-color: var(--accent);
 }
+
+/* Menu bar panel. Its window is transparent, so the panel draws its own
+   rounded, bordered card. */
+
+html.is-popover,
+html.is-popover body {
+  background: transparent;
+}
+
+.pop {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  flex-shrink: 0;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pop-title {
+  font-weight: 600;
+}
+
+.pop-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pop-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.pop-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 14px;
+}
+
+.pop-row:hover {
+  background: var(--raised);
+}
+
+.pop-row .icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.pop-row .monogram {
+  display: grid;
+  place-items: center;
+  background: var(--active);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.pop-name {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.pop-name .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pop-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pop-sub.p-done {
+  color: var(--s-done);
+}
+.pop-sub.p-failed {
+  color: var(--s-failed);
+}
+.pop-sub.p-handoff {
+  color: var(--s-handoff);
+}
+
+.btn.small {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.pop-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  height: 100%;
+  color: var(--secondary);
+}
+
+.pop-empty-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--s-done);
+}
+
+.pop-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--raised);
+}
+
+.pop-status {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  color: var(--muted);
+  font-size: 11px;
+}

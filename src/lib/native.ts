@@ -131,6 +131,26 @@ export interface SelfUpdate {
   canInstall: boolean;
 }
 
+/** What the menu bar panel shows. */
+export interface Snapshot {
+  reports: Report[];
+  lastCheck: number | null;
+  checking: boolean;
+  updating: boolean;
+}
+
+export const snapshot = () => call<Snapshot>("snapshot");
+/** Show the main window, optionally on a view, and close the menu bar panel. */
+export const showMain = (view?: string) => call<void>("show_main", { view: view ?? null });
+
+/** True in the panel that opens under the menu bar icon. */
+export function isPopover(): boolean {
+  if (!nativeAvailable()) return new URLSearchParams(window.location.search).has("popover");
+  const internals = (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } })
+    .__TAURI_INTERNALS__;
+  return internals?.metadata?.currentWindow?.label === "popover";
+}
+
 export const getSettings = () => call<Settings>("get_settings");
 /** Resolves with the settings as stored, repaired if a combination made no sense. */
 export const setSettings = (settings: Settings) => call<Settings>("set_settings", { settings });
@@ -152,6 +172,10 @@ export const events = {
   updateStarted: (h: (ids: string[]) => void) => on("camu://update-started", h),
   updateFinished: (h: () => void) => on("camu://update-finished", h),
   selfUpdate: (h: (found: SelfUpdate | null) => void) => on("camu://self-update", h),
+  /** The menu bar panel was opened. */
+  popoverShown: (h: () => void) => on("camu://popover-shown", h),
+  /** The menu bar panel asked the main window to show a view. */
+  navigate: (h: (view: string) => void) => on("camu://navigate", h),
   /** The menu bar asked to show an app. */
   select: (h: (id: string) => void) => on("camu://select", h),
 };

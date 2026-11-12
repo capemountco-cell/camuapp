@@ -23,9 +23,13 @@ use camu_core::selfupdate::{self, SelfUpdate};
 use camu_core::settings::{self, Settings};
 use camu_core::update::{self, Backup, Dirs, Job, Phase, Updater};
 use camu_core::{icon, launch, platform, scan, Checker, Install, InstalledApp, Report, Status};
+use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder,
+    WindowEvent,
+};
 use tauri_plugin_notification::NotificationExt;
 
 /// Everything shared between commands, the menu bar and the scheduler.
@@ -172,6 +176,46 @@ fn run_updates(
     refresh_tray(app, inner);
     let _ = app.emit("camu://update-finished", ());
     Ok(results)
+}
+
+/// The small panel that opens under the menu bar icon.
+const POPOVER: &str = "popover";
+const POPOVER_SIZE: (f64, f64) = (380.0, 480.0);
+
+fn build_popover(app: &AppHandle) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(app, POPOVER, WebviewUrl::App("index.html".into()))
+        .title("Camu")
+        .inner_size(POPOVER_SIZE.0, POPOVER_SIZE.1)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .shadow(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .build()?;
+    Ok(())
+}
+
+/// Open the panel centred under the menu bar icon, or close it if open.
+fn toggle_popover(app: &AppHandle, icon: tauri::Rect) {
+    let Some(panel) = app.get_webview_window(POPOVER) else {
+        return;
+    };
+    if panel.is_visible().unwrap_or(false) {
+        let _ = panel.hide();
+        return;
+    }
+    let scale = panel.scale_factor().unwrap_or(2.0);
+    let at = icon.position.to_physical::<f64>(scale);
+    let size = icon.size.to_physical::<f64>(scale);
+    let width = POPOVER_SIZE.0 * scale;
+    let x = (at.x + size.width / 2.0 - width / 2.0).max(8.0 * scale);
+    let y = at.y + size.height + 6.0 * scale;
+    let _ = panel.set_position(PhysicalPosition::new(x, y));
+    let _ = panel.show();
+    let _ = panel.set_focus();
+    let _ = app.emit_to(POPOVER, "camu://popover-shown", ());
 }
 
 fn show_window(app: &AppHandle) {
@@ -417,6 +461,41 @@ async fn update_apps(
     blocking(move || run_updates(&app, &inner, &ids).map(|_| ())).await?
 }
 
+/// Everything the menu bar panel shows, in one call.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Snapshot {
+    reports: Vec<Report>,
+    last_check: Option<u64>,
+    checking: bool,
+    updating: bool,
+}
+
+#[tauri::command]
+fn snapshot(state: State<'_, Shared>) -> Snapshot {
+    let mut reports: Vec<Report> = state.reports.lock().unwrap().values().cloned().collect();
+    reports.sort_by_key(|r| r.app.name.to_lowercase());
+    Snapshot {
+        reports,
+        last_check: state.state.lock().unwrap().last_check,
+        checking: state.checking.load(Ordering::SeqCst),
+        updating: state.updating.load(Ordering::SeqCst),
+    }
+}
+
+/// Bring the main window forward, optionally on a given view, and close the
+/// menu bar panel.
+#[tauri::command]
+fn show_main(app: AppHandle, view: Option<String>) {
+    if let Some(panel) = app.get_webview_window(POPOVER) {
+        let _ = panel.hide();
+    }
+    show_window(&app);
+    if let Some(view) = view {
+        let _ = app.emit_to("main", "camu://navigate", view);
+    }
+}
+
 #[tauri::command]
 fn get_settings(state: State<'_, Shared>) -> Settings {
     state.settings()
@@ -569,8 +648,22 @@ pub fn run() {
                 .icon(tray_icon)
                 .icon_as_template(true)
                 .tooltip("Camu")
+                // Left click opens the panel; right click shows the menu.
+                .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        rect,
+                        ..
+                    } = event
+                    {
+                        toggle_popover(tray.app_handle(), rect);
+                    }
+                })
                 .build(app)?;
+            build_popover(&handle)?;
             *inner.tray.lock().unwrap() = Some(tray);
             apply_dock(&handle, &inner.settings());
             refresh_tray(&handle, &inner);
@@ -580,6 +673,20 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // The panel closes when it loses focus, like a menu.
+            if window.label() == POPOVER {
+                match event {
+                    WindowEvent::Focused(false) => {
+                        let _ = window.hide();
+                    }
+                    WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                    _ => {}
+                }
+                return;
+            }
             // With the menu bar icon on, closing the window keeps Camu
             // running there; Quit is in the menu.
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -592,6 +699,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_apps,
+            snapshot,
+            show_main,
             check_updates,
             update_apps,
             get_settings,

@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the main window may do. Start from nothing and add permissions one at a time, as features need them. allow-start-dragging: the top bar is the title bar, so dragging it must move the window.",
+  "description": "What the main window may do. Start from nothing and add permissions one at a time, as features need them. allow-start-dragging: the top bar is the title bar, so dragging it must move the window. The menu bar panel (popover) shares these.",
   "windows": [
-    "main"
+    "main",
+    "popover"
   ],
   "permissions": [
     "core:default",

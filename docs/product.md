@@ -31,7 +31,8 @@ Done: 1, 2, 3 and 4.
 3. **Updating.** Homebrew batch, App Store hand-off, download → verify the
    signature matches the installed app's team → back up → replace, with a
    single admin prompt for the batch. Roll back.
-4. **Living with it.** A menu bar icon with the update count and Update All;
+4. **Living with it.** A menu bar icon with the update count that opens a
+   panel (pending apps, an Update button each, Update All, refresh, settings);
    background checks on a schedule; one notification per new version;
    automatic installs (one-click updates only, on by default, each backed up first);
    Camu updating itself in place when signed with a Developer ID, or showing
