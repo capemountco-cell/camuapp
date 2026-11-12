@@ -1,26 +1,75 @@
-# Camuapp
+# Camu
 
-Just need a blank page made
+Keeps every app on your Mac up to date. Black only, one line per app,
+no accounts, no tracking.
 
-This project was built with [Lovable](https://lovable.dev).
+Camu checks each app against every source that knows it (its Sparkle
+appcast, its Electron update feed, the Mac App Store, GitHub releases and
+Homebrew's cask catalogue) and believes the most trusted one that answers.
+See [docs/product.md](docs/product.md) for what it must do better than the
+alternatives, and the order of work.
 
-**Live app**: https://camuapp.lovable.app
+Built with Tauri 2, Rust and React, from the Mac App Template.
 
-## Build with Lovable
+## Where things live
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/311d9235-1cdd-478e-9331-2e5fc3716dc4).
+| Path | What |
+|---|---|
+| `crates/camu-core/src/scan.rs`, `app.rs` | Finding installed apps and reading their bundles |
+| `crates/camu-core/src/sources/` | One module per update source |
+| `crates/camu-core/src/check.rs` | Asking the sources and deciding what to believe |
+| `crates/camu-core/src/version.rs` | Comparing version strings |
+| `src-tauri/src/lib.rs` | Thin IPC commands |
+| `src/` | The UI. Every call to Rust goes through `src/lib/native.ts` |
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+## Everyday commands
 
-## Development
+| Command | Does |
+| --- | --- |
+| `npm run dev` | Runs the app with live reload |
+| `npm run check` | Type check, tests, Rust format, lint and tests. Run before every push |
+| `npm run dmg` | Builds and verifies a `.dmg` for this Mac's chip |
+| `npm run dmg:universal` | One `.dmg` for Apple silicon and Intel |
+| `npm run dmg -- --plain` | Same, without the Finder window styling (over SSH, or if that step hangs) |
+| `npm run verify-dmg -- path.dmg` | Checks any `.dmg` |
+| `npm run icons` | Regenerates every icon size from `src-tauri/app-icon.png` (1024×1024) |
+| `npm run set-version -- 1.2.0` | Sets the version everywhere it lives |
+| `npm run doctor` | Lists anything missing on this machine, with the fix |
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+## Releasing
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+npm run set-version -- 1.0.0
+git commit -am "Release 1.0.0"
+git tag v1.0.0
+git push && git push --tags
 ```
+
+GitHub Actions builds a universal `.dmg` and attaches it to a GitHub release.
+It is signed and notarized if you have added Apple credentials as secrets
+([docs/signing.md](docs/signing.md)), and ad-hoc signed otherwise.
+
+Every push also runs CI, which builds a `.dmg` on a real Mac and attaches it
+to the run, so a change that breaks packaging is caught on the day it is made.
+
+## Layout
+
+```
+crates/starter-core/   The app's logic. No Tauri, so it tests on any OS.
+src-tauri/             The native shell: window, commands, bundling config.
+  tauri.conf.json      Name, id, window, .dmg layout, signing.
+  entitlements.plist   What the hardened runtime allows.
+  app-icon.png         The one icon you edit; npm run icons makes the rest.
+src/                   The React interface.
+  lib/native.ts        Every call from the UI to Rust, in one place.
+scripts/               doctor, init, build-dmg, verify-dmg, set-version.
+docs/                  dmg.md (failures and fixes), signing.md.
+```
+
+`init` renames `starter` and `starter-core` to your app's name.
+
+## Requirements
+
+macOS 12 or newer to build, with the Xcode command line tools, Node 20+ and
+Rust. `npm run doctor` checks all of it. The core crate and the frontend also
+build and test on Linux, and that is what CI does first.

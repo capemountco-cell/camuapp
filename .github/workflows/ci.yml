@@ -1,0 +1,79 @@
+name: CI
+
+# Every push to a pull request, and every push to main, proves three things:
+# the logic passes its tests, the frontend builds, and a working .dmg comes
+# out the other end on a real Mac. The .dmg is attached to the run.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core:
+    name: Core (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      # Only the core crate: the Tauri crate needs a webview to compile, and
+      # the macOS job below covers it.
+      - run: cargo clippy -p camu-core --all-targets -- -D warnings
+      - run: cargo test -p camu-core
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build:web
+
+  macos:
+    name: App and .dmg (macOS)
+    # macos-latest, not a pinned version: GitHub retires pinned images, and a
+    # job asking for a retired one is cancelled within a second, with no logs.
+    # The oldest macOS the app supports is set by minimumSystemVersion in
+    # tauri.conf.json, not by the runner.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Clippy (whole workspace, including the Tauri crate)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Build and verify the .dmg
+        # CI=true is already set by GitHub, so the Finder window styling,
+        # which needs a logged-in desktop, is skipped automatically.
+        run: npm run dmg
+      - name: Upload the .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ runner.arch }}
+          path: release/*.dmg
+          if-no-files-found: error
