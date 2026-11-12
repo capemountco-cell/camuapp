@@ -1,10 +1,6 @@
-/*
- * Camu is black by default. Light is a choice in the toolbar; "System"
- * follows macOS.
- */
+/* Camu is black. There is no light theme. */
 
-:root,
-:root[data-theme="black"] {
+:root {
   color-scheme: dark;
   --bg: #000000;
   --raised: #0d0d0e;
@@ -17,38 +13,6 @@
   --accent: #3ddc97;
   --accent-ink: #00170d;
   --danger: #ff6b5e;
-}
-
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #ffffff;
-  --raised: #f6f6f7;
-  --hover: #f0f0f2;
-  --line: #ececef;
-  --line-strong: #dcdce0;
-  --text: #111113;
-  --muted: #6b6b73;
-  --faint: #a5a5ad;
-  --accent: #0f9d63;
-  --accent-ink: #ffffff;
-  --danger: #d13b2e;
-}
-
-@media (prefers-color-scheme: light) {
-  :root[data-theme="system"] {
-    color-scheme: light;
-    --bg: #ffffff;
-    --raised: #f6f6f7;
-    --hover: #f0f0f2;
-    --line: #ececef;
-    --line-strong: #dcdce0;
-    --text: #111113;
-    --muted: #6b6b73;
-    --faint: #a5a5ad;
-    --accent: #0f9d63;
-    --accent-ink: #ffffff;
-    --danger: #d13b2e;
-  }
 }
 
 :root {
@@ -156,7 +120,6 @@ button {
 }
 
 .primary,
-.ghost,
 .pill {
   height: 28px;
   padding: 0 12px;
@@ -175,15 +138,6 @@ button {
   opacity: 0.55;
 }
 
-.ghost {
-  background: transparent;
-  border-color: var(--line-strong);
-  color: var(--muted);
-}
-
-.ghost:hover {
-  color: var(--text);
-}
 
 .progress {
   height: 2px;

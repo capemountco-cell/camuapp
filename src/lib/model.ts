@@ -6,17 +6,15 @@
 import type { InstalledApp, Install, Report, Source } from "./native";
 
 export type Tab = "updates" | "current" | "other" | "ignored";
-export type Theme = "black" | "light" | "system";
 
 export interface Prefs {
-  theme: Theme;
   /** Bundle ids whose updates are hidden. */
   ignored: string[];
   /** Bundle ids that follow beta channels. */
   beta: string[];
 }
 
-export const defaultPrefs: Prefs = { theme: "black", ignored: [], beta: [] };
+export const defaultPrefs: Prefs = { ignored: [], beta: [] };
 
 const PREFS_KEY = "camu.prefs.v1";
 
@@ -26,7 +24,6 @@ export function loadPrefs(storage: Pick<Storage, "getItem"> | undefined = global
     if (!raw) return defaultPrefs;
     const parsed = JSON.parse(raw) as Partial<Prefs>;
     return {
-      theme: parsed.theme === "light" || parsed.theme === "system" ? parsed.theme : "black",
       ignored: Array.isArray(parsed.ignored) ? parsed.ignored.filter((s) => typeof s === "string") : [],
       beta: Array.isArray(parsed.beta) ? parsed.beta.filter((s) => typeof s === "string") : [],
     };

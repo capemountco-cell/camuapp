@@ -54,19 +54,17 @@ describe("grouping", () => {
 });
 
 describe("preferences", () => {
-  it("default to the black theme and survive a round trip", () => {
+  it("default to empty and survive a round trip", () => {
     const store = new Map<string, string>();
     const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
     expect(loadPrefs(storage)).toEqual(defaultPrefs);
-    expect(defaultPrefs.theme).toBe("black");
-    savePrefs({ theme: "light", ignored: ["x"], beta: [] }, storage);
-    expect(loadPrefs(storage)).toEqual({ theme: "light", ignored: ["x"], beta: [] });
+    savePrefs({ ignored: ["x"], beta: [] }, storage);
+    expect(loadPrefs(storage)).toEqual({ ignored: ["x"], beta: [] });
   });
 
   it("ignore corrupt storage", () => {
     expect(loadPrefs({ getItem: () => "{not json" })).toEqual(defaultPrefs);
-    expect(loadPrefs({ getItem: () => '{"theme":"neon","ignored":[1,"a"]}' })).toEqual({
-      theme: "black",
+    expect(loadPrefs({ getItem: () => '{"theme":"light","ignored":[1,"a"]}' })).toEqual({
       ignored: ["a"],
       beta: [],
     });

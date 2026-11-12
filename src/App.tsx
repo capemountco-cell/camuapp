@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppRow } from "./components/AppRow";
-import { group, loadPrefs, matches, savePrefs, toggle, type Prefs, type Row, type Tab, type Theme } from "./lib/model";
+import { group, loadPrefs, matches, savePrefs, toggle, type Prefs, type Row, type Tab } from "./lib/model";
 import {
   checkUpdates,
   listApps,
@@ -19,9 +19,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "other", label: "Unsupported" },
   { id: "ignored", label: "Ignored" },
 ];
-
-const THEMES: Theme[] = ["black", "light", "system"];
-const THEME_LABEL: Record<Theme, string> = { black: "Black", light: "Light", system: "System" };
 
 function timeAgo(date: Date, now: number): string {
   const minutes = Math.round((now - date.getTime()) / 60000);
@@ -52,9 +49,6 @@ export function App() {
     });
   }, []);
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = prefs.theme;
-  }, [prefs.theme]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
@@ -161,16 +155,6 @@ export function App() {
             onChange={(e) => setQuery(e.target.value)}
             spellCheck={false}
           />
-          <button
-            type="button"
-            className="ghost"
-            title="Appearance"
-            onClick={() =>
-              updatePrefs((p) => ({ ...p, theme: THEMES[(THEMES.indexOf(p.theme) + 1) % THEMES.length] ?? "black" }))
-            }
-          >
-            {THEME_LABEL[prefs.theme]}
-          </button>
           <button type="button" className="primary" onClick={() => void check()} disabled={checking}>
             {checking ? "Checking…" : "Check"}
           </button>
