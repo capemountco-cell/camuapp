@@ -50,7 +50,7 @@ export const Row = forwardRef<HTMLLIElement, Props>(function Row({ row, phase, s
       <StatusGlyph status={report?.status} phase={phase} />
       <AppIcon app={app} />
       <span className="row-name">{app.name}</span>
-      {best && <span className="row-source">{sourceLabel[best.source]}</span>}
+      {best && <span className={`row-source src src-${best.source}`}>{sourceLabel[best.source]}</span>}
       <span className="row-fill" />
       {right}
     </li>

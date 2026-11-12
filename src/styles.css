@@ -1,47 +1,56 @@
 /*
- * Camu is black. There is no light theme.
- *
- * Depth comes from small lightness steps between surfaces, never from
- * shadows. Text is grey by default; saturated colour is reserved for status
- * and for the one primary action. Everything sits on a 4px grid.
+ * Camu's palette, after Linear's dark UI: the window chrome is a near-black
+ * grey, and the content sits in a lighter grey container with rounded
+ * corners. Depth comes from small lightness steps between surfaces, never
+ * heavy shadows. Icons and text are neutral grey; colour appears only where
+ * it means something, and each meaning has its own hue (update waiting,
+ * done, failed, hand-off, and one per update source). The one saturated
+ * button is the primary action. Everything sits on a 4px grid.
  */
 
 :root {
   color-scheme: dark;
 
-  /* Surfaces, darkest first. */
-  --bg: #000000;
-  --panel: #08090a;
-  --raised: #0f1011;
-  --hover: #141516;
-  --active: #1a1b1d;
+  /* Surfaces, darkest first: chrome, container, then raised layers. */
+  --bg: #101012;
+  --panel: #191a1c;
+  --raised: #1f2023;
+  --hover: #242528;
+  --active: #2b2c30;
 
-  /* Hairlines. */
-  --line: #1b1c1f;
-  --line-strong: #26272b;
+  /* Hairlines: light at low alpha, so they read the same on every grey. */
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.1);
 
   /* Text. */
-  --text: #f7f8f8;
-  --secondary: #b4b7bd;
-  --muted: #8a8f98;
-  --faint: #62666d;
+  --text: #ededef;
+  --secondary: #b4b4bb;
+  --muted: #8e8e96;
+  --faint: #6b6b73;
 
-  /* Colour, used sparingly. */
+  /* Colour, used sparingly and never twice for different things. */
   --accent: #5e6ad2;
   --accent-hover: #6c78e0;
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
-  --s-update: #828bf3;
+  --s-update: #f2c94c;
   --s-done: #4cb782;
   --s-failed: #eb5757;
-  --s-handoff: #d9a64e;
+  --s-handoff: #4ea7fc;
+
+  /* One hue per update source, shown as a small dot. */
+  --src-sparkle: #b18cff;
+  --src-electron: #4fd1c5;
+  --src-appStore: #4ea7fc;
+  --src-github: #c4c4cc;
+  --src-homebrew: #f2994a;
 
   --radius: 6px;
-  --row: 32px;
+  --row: 38px;
   --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
 
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 13.5px;
+  line-height: 1.45;
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
 }
@@ -138,8 +147,7 @@ p {
   flex: none;
   display: flex;
   flex-direction: column;
-  background: #0b0b0c;
-  border-bottom: 1px solid var(--line);
+  background: var(--bg);
   -webkit-user-select: none;
 }
 
@@ -190,7 +198,7 @@ p {
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: #a8abb2;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 500;
   transition:
@@ -215,7 +223,7 @@ p {
 }
 
 .tool.current .tool-icon {
-  color: var(--s-update);
+  color: var(--text);
 }
 
 .tool:disabled {
@@ -251,7 +259,7 @@ p {
   right: 24px;
   width: 8px;
   height: 8px;
-  border: 2px solid #0b0b0c;
+  border: 2px solid var(--bg);
   border-radius: 50%;
   background: var(--accent);
 }
@@ -283,10 +291,13 @@ p {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  margin: 8px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
+  margin: 0 8px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  background:
+    radial-gradient(1100px 420px at 0 0, rgba(255, 255, 255, 0.028), transparent 65%),
+    var(--panel);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
   overflow: hidden;
 }
 
@@ -1189,4 +1200,36 @@ html.is-popover body {
   flex-direction: column;
   color: var(--muted);
   font-size: 11px;
+}
+
+/* Source dots: the one place each update source gets its colour. */
+
+.src {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.src::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.src-sparkle::before {
+  background: var(--src-sparkle);
+}
+.src-electron::before {
+  background: var(--src-electron);
+}
+.src-appStore::before {
+  background: var(--src-appStore);
+}
+.src-github::before {
+  background: var(--src-github);
+}
+.src-homebrew::before {
+  background: var(--src-homebrew);
 }
