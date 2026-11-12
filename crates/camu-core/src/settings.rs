@@ -37,7 +37,7 @@ impl Default for Settings {
         Self {
             check_every_hours: 6,
             notify: true,
-            auto_update: false,
+            auto_update: true,
             menu_bar: true,
             show_in_dock: true,
             ignored: Vec::new(),
@@ -223,6 +223,7 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"notify": false, "future": 1}"#).unwrap();
         assert!(!s.notify);
         assert_eq!(s.check_every_hours, 6);
+        assert!(s.auto_update, "automatic installs are on unless turned off");
     }
 
     #[test]

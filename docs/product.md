@@ -16,7 +16,7 @@ known ways. These are the complaints, and Camu's answer to each one.
 | Wanting to read changelogs first | Release notes inline, one click away, as plain text |
 | Cluttered, verbose UI with information stacked on itself | One row per app: name, installed → available, one action. Details only when opened |
 | Needs exclusions and beta channels | Ignore per app; opt into beta channels per app |
-| Menu bar or dock, auto-update if wanted | Both modes; scheduled checks; auto-update is off by default |
+| Menu bar or dock, auto-update if wanted | Both modes; scheduled checks; auto-update is on by default, for one-click updates only, each backed up first |
 | Subscriptions, tracking, accounts | None. No analytics, no registration, no ads |
 
 ## Order of work
@@ -33,7 +33,7 @@ Done: 1, 2, 3 and 4.
    single admin prompt for the batch. Roll back.
 4. **Living with it.** A menu bar icon with the update count and Update All;
    background checks on a schedule; one notification per new version;
-   optional automatic installs (one-click updates only, off by default);
+   automatic installs (one-click updates only, on by default, each backed up first);
    Camu updating itself in place when signed with a Developer ID, or showing
    the release to download when it isn't.
 

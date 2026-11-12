@@ -57,7 +57,7 @@ const TAB_TITLE: Record<View, string> = {
 const NO_SETTINGS: Settings = {
   checkEveryHours: 6,
   notify: true,
-  autoUpdate: false,
+  autoUpdate: true,
   menuBar: true,
   showInDock: true,
   ignored: [],
