@@ -6,7 +6,7 @@ import { ArrowUpCircle, CheckCircle, EyeOff, Folder, Question, Refresh, Undo } f
 import { Kbd } from "./components/Kbd";
 import { Row } from "./components/Row";
 import { SettingsView } from "./components/SettingsView";
-import { TopBar, type View } from "./components/TopBar";
+import { TopBar, type Status as BarStatus, type View } from "./components/TopBar";
 import {
   group,
   isBusy,
@@ -475,11 +475,6 @@ export function App() {
       : nativeAvailable()
         ? "Not checked yet"
         : "Open Camu as an app to check";
-  const nextCheck =
-    !checking && lastChecked && prefs.checkEveryHours > 0
-      ? untilLabel(lastChecked.getTime() + prefs.checkEveryHours * 3_600_000 - now)
-      : null;
-
   const counts: Record<Tab, number> = {
     updates: updateCount,
     current: tabs.current.length,
@@ -487,15 +482,45 @@ export function App() {
     ignored: tabs.ignored.length,
   };
 
+  const checkedLine = lastChecked ? `Checked ${timeAgo(lastChecked, now)}` : "Not checked yet";
+  const busyCount = [...phases.values()].filter(isBusy).length;
+  const barStatus: BarStatus = checking
+    ? { tone: "working", title: "Checking for updates", line: `${reports.size} of ${apps?.length ?? "…"} apps` }
+    : updating
+      ? {
+          tone: "working",
+          title: `Updating ${busyCount || ""} app${busyCount === 1 ? "" : "s"}`.replace("  ", " "),
+          line: "Backups are made first",
+        }
+      : !nativeAvailable() && !lastChecked
+        ? { tone: "none", title: "Camu", line: "Open as an app to check" }
+        : counts.updates > 0
+          ? {
+              tone: "update",
+              title: `${counts.updates} update${counts.updates === 1 ? "" : "s"} available`,
+              line: checkedLine,
+            }
+          : lastChecked
+            ? { tone: "done", title: "Everything is up to date", line: checkedLine }
+            : { tone: "none", title: "Not checked yet", line: "Press ⌘R to check" };
+  const nextCheck =
+    !checking && lastChecked && prefs.checkEveryHours > 0
+      ? untilLabel(lastChecked.getTime() + prefs.checkEveryHours * 3_600_000 - now)
+      : null;
+
+
   return (
     <div className="shell">
       <TopBar
         view={view}
         counts={counts}
+        status={barStatus}
         checking={checking}
+        canUpdateAll={updating || checking ? 0 : pending.length}
         selfUpdate={selfUpdate}
         onView={goTab}
         onCheck={check}
+        onUpdateAll={updateAll}
         onPalette={() => setPalette(true)}
       />
 
