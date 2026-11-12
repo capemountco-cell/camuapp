@@ -508,22 +508,29 @@ export function App() {
           {view !== "settings" && <span className="header-count">{counts[tab]}</span>}
           <span className="spacer" />
           {view !== "settings" && <FilterMenu value={filter} counts={filterCounts} onChange={setFilter} />}
-          {view === "updates" && (
-            <button
-              type="button"
-              className="btn go"
-              onClick={updateAll}
-              disabled={updating || checking || pending.length === 0}
-              title={
-                oneClick.length < pending.length
-                  ? `${oneClick.length} install here; ${pending.length - oneClick.length} finish in the App Store or the app`
-                  : undefined
-              }
-            >
-              {updating ? "Updating…" : pending.length ? `Update all ${pending.length}` : "Update all"}
-              {!updating && pending.length > 0 && <Kbd keys={["⌘", "U"]} />}
-            </button>
-          )}
+          {view === "updates" &&
+            (pending.length === 0 && !updating && !checking && lastChecked ? (
+              <span className="btn ok" role="status">
+                <CheckCircle className="i" />
+                All up to date
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="btn go"
+                onClick={updateAll}
+                disabled={updating || checking || pending.length === 0}
+                title={
+                  oneClick.length < pending.length
+                    ? `${oneClick.length} install here; ${pending.length - oneClick.length} finish in the App Store or the app`
+                    : undefined
+                }
+              >
+                <ArrowUpCircle className="i" />
+                {updating ? "Updating…" : pending.length ? `Update all ${pending.length}` : "Update all"}
+                {!updating && pending.length > 0 && <Kbd keys={["⌘", "U"]} />}
+              </button>
+            ))}
         </header>
 
         {view === "settings" ? (

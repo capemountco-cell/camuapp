@@ -35,12 +35,7 @@
   --accent-hover: #6c78e0;
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --s-update: #f0bf3a;
-  --s-done: #4cb782;
-  /* The update action: green, the colour of "updated". Dark text, because
-     white on this green fails contrast. */
-  --go: #4cb782;
-  --go-hover: #5cc792;
-  --go-ink: #0b1d13;
+  --s-done: #5ebf5e;
   --s-failed: #eb5757;
   --s-handoff: #5e9cf5;
 
@@ -356,20 +351,39 @@ p {
   background: var(--accent-hover);
 }
 
-.btn.go {
+/* Status buttons, tinted like Linear's "On track": the colour as text and
+   icon on a soft wash of itself. Yellow while updates wait (the same yellow
+   as the update marks), green once everything is current. */
+.btn.go,
+.btn.ok {
   border-color: transparent;
-  background: var(--go);
-  color: var(--go-ink);
   font-weight: 600;
 }
 
+.btn.go {
+  background: color-mix(in srgb, var(--s-update) 17%, transparent);
+  color: var(--s-update);
+}
+
 .btn.go:hover:not(:disabled) {
-  background: var(--go-hover);
+  background: color-mix(in srgb, var(--s-update) 25%, transparent);
 }
 
 .btn.go .kbd-group kbd {
-  background: rgba(11, 29, 19, 0.16);
-  color: rgba(11, 29, 19, 0.75);
+  background: color-mix(in srgb, var(--s-update) 18%, transparent);
+  color: var(--s-update);
+}
+
+.btn.ok {
+  background: color-mix(in srgb, var(--s-done) 17%, transparent);
+  color: var(--s-done);
+  cursor: default;
+}
+
+.btn.go svg,
+.btn.ok svg {
+  width: 15px;
+  height: 15px;
 }
 
 .btn.primary .kbd-group kbd {
