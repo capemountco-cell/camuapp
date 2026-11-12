@@ -3,6 +3,10 @@ name: Release
 # Push a tag like v1.2.0 and this builds a universal .dmg (Apple silicon and
 # Intel in one file) and attaches it to a GitHub release.
 #
+# Or run it from the Actions tab (Run workflow) with a version: it builds the
+# current commit and GitHub creates the v<version> tag and release itself, for
+# when tags can't be pushed from where you are.
+#
 # Signing and notarization happen only when the secrets below exist. Without
 # them the .dmg is ad-hoc signed, which works but asks downloaders to approve
 # it once in System Settings. See docs/signing.md.
@@ -11,6 +15,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 1.2.0 (must match package.json). Leave empty to only build."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -22,6 +31,9 @@ jobs:
     env:
       # Secrets cannot be read in an `if:`, so expose only whether one is set.
       HAS_SIGNING_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      # The release tag: the pushed tag, or v<version> from Run workflow, or
+      # empty for a build without a release.
+      TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.version != '' && format('v{0}', inputs.version) || '') }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -34,9 +46,9 @@ jobs:
           cache: npm
 
       - name: Check the tag matches package.json
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.TAG != ''
         run: |
-          want="${GITHUB_REF_NAME#v}"
+          want="${TAG#v}"
           have="$(node -p 'require("./package.json").version')"
           if [ "$want" != "$have" ]; then
             echo "::error::Tag is v$want but package.json says $have. Run: npm run set-version -- $want"
@@ -76,15 +88,17 @@ jobs:
           npm run dmg:universal
 
       - name: Attach to a GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           dmg="$(ls release/*.dmg)"
           shasum -a 256 "$dmg" > "$dmg.sha256"
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" "$dmg" "$dmg.sha256" --clobber
+          # --target makes GitHub create the tag on this commit when it
+          # doesn't exist yet (the Run workflow path).
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --target "$GITHUB_SHA" --title "Camu ${TAG#v}" --generate-notes
+          gh release upload "$TAG" "$dmg" "$dmg.sha256" --clobber
 
       - name: Upload the .dmg
         uses: actions/upload-artifact@v4
