@@ -61,6 +61,14 @@ export const Close = (p: IconProps) => svg(<path d="m4.5 4.5 7 7M11.5 4.5l-7 7" 
 export const External = (p: IconProps) => svg(<path d="M6.5 3.5h-3v9h9v-3M9 3.5h3.5V7M12.5 3.5 7.5 8.5" {...stroke} />, p);
 export const Folder = (p: IconProps) => svg(<path d="M2.5 4.5v7.25c0 .41.34.75.75.75h9.5c.41 0 .75-.34.75-.75V6.25a.75.75 0 0 0-.75-.75H8L6.5 3.75H3.25a.75.75 0 0 0-.75.75Z" {...stroke} />, p);
 export const Undo = (p: IconProps) => svg(<path d="M5.5 3.5 2.75 6.25 5.5 9M3 6.25h6.25a3.5 3.5 0 0 1 0 7H7" {...stroke} />, p);
+export const Gear = (p: IconProps) =>
+  svg(
+    <>
+      <circle cx="8" cy="8" r="2" {...stroke} />
+      <path d="M8 2.25v1.5M8 12.25v1.5M13.75 8h-1.5M3.75 8h-1.5M12.07 3.93l-1.06 1.06M4.99 11.01l-1.06 1.06M12.07 12.07l-1.06-1.06M4.99 4.99 3.93 3.93" {...stroke} />
+    </>,
+    p,
+  );
 export const Command = (p: IconProps) =>
   svg(<path d="M6 6V4.5a1.5 1.5 0 1 0-1.5 1.5H6Zm0 0v4m0-4h4m-4 4H4.5A1.5 1.5 0 1 0 6 11.5V10Zm0 0h4m0-4V4.5A1.5 1.5 0 1 1 11.5 6H10Zm0 0v4m0 0v1.5a1.5 1.5 0 1 0 1.5-1.5H10Z" {...stroke} />, p);
 

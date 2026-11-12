@@ -28,7 +28,13 @@ export const Row = forwardRef<HTMLLIElement, Props>(function Row({ row, phase, s
       <span className="versions">
         <span className="from">{app.version}</span>
         <span className="arrow">→</span>
-        <span className="to">{best.version}</span>
+        <span className="vpill">
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+            <rect x="1" y="1" width="12" height="12" rx="3.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+            <path d="M7 4.5 9.6 9H4.4Z" fill="currentColor" />
+          </svg>
+          {best.version}
+        </span>
       </span>
     );
   } else if (!report || report.status === "upToDate") {
@@ -50,7 +56,7 @@ export const Row = forwardRef<HTMLLIElement, Props>(function Row({ row, phase, s
       <StatusGlyph status={report?.status} phase={phase} />
       <AppIcon app={app} />
       <span className="row-name">{app.name}</span>
-      {best && <span className="row-source">{sourceLabel[best.source]}</span>}
+      {best && <span className={`row-source src src-${best.source}`}>{sourceLabel[best.source]}</span>}
       <span className="row-fill" />
       {right}
     </li>

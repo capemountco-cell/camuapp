@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Camu",
@@ -20,7 +21,10 @@
         "center": true,
         "resizable": true,
         "theme": "Dark",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#18181a",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 18, "y": 14 }
       }
     ],
     "security": {

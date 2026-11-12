@@ -16,12 +16,12 @@ known ways. These are the complaints, and Camu's answer to each one.
 | Wanting to read changelogs first | Release notes inline, one click away, as plain text |
 | Cluttered, verbose UI with information stacked on itself | One row per app: name, installed → available, one action. Details only when opened |
 | Needs exclusions and beta channels | Ignore per app; opt into beta channels per app |
-| Menu bar or dock, auto-update if wanted | Both modes; scheduled checks; auto-update is off by default |
+| Menu bar or dock, auto-update if wanted | Both modes; scheduled checks; auto-update is on by default, for one-click updates only, each backed up first |
 | Subscriptions, tracking, accounts | None. No analytics, no registration, no ads |
 
 ## Order of work
 
-Done: 1, 2 and 3. Next: 4.
+Done: 1, 2, 3 and 4.
 
 1. **Coverage.** Scanning and every checker, all tested against fixtures in the
    core crate.
@@ -31,8 +31,12 @@ Done: 1, 2 and 3. Next: 4.
 3. **Updating.** Homebrew batch, App Store hand-off, download → verify the
    signature matches the installed app's team → back up → replace, with a
    single admin prompt for the batch. Roll back.
-4. **Living with it.** Menu bar mode, scheduled checks, notifications, Camu
-   updating itself.
+4. **Living with it.** A menu bar icon with the update count that opens a
+   panel (pending apps, an Update button each, Update All, refresh, settings);
+   background checks on a schedule; one notification per new version;
+   automatic installs (one-click updates only, on by default, each backed up first);
+   Camu updating itself in place when signed with a Developer ID, or showing
+   the release to download when it isn't.
 
 ## Safety rules for installing
 

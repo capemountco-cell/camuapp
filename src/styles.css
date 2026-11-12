@@ -1,47 +1,58 @@
 /*
- * Camu is black. There is no light theme.
- *
- * Depth comes from small lightness steps between surfaces, never from
- * shadows. Text is grey by default; saturated colour is reserved for status
- * and for the one primary action. Everything sits on a 4px grid.
+ * Camu's palette, after Linear's dark UI: the window chrome is a near-black
+ * grey, and the content sits in a lighter grey container with rounded
+ * corners. Depth comes from small lightness steps between surfaces, never
+ * heavy shadows. Icons and text are neutral grey; colour appears only where
+ * it means something, and each meaning has its own hue (update waiting,
+ * done, failed, hand-off, and one per update source). The one saturated
+ * button is the primary action. Everything sits on a 4px grid.
  */
 
 :root {
   color-scheme: dark;
 
-  /* Surfaces, darkest first. */
-  --bg: #000000;
-  --panel: #08090a;
-  --raised: #0f1011;
-  --hover: #141516;
-  --active: #1a1b1d;
+  /* Surfaces, sampled from Linear's own screens: the chrome is a mid-dark
+     grey, the content container sits darker inside it, and cards lift back
+     up off the container. Each step is big enough to see. */
+  --bg: #18181a;
+  --panel: #131315;
+  --raised: #19191b;
+  --hover: #1f1f22;
+  --active: #26262a;
 
   /* Hairlines. */
-  --line: #1b1c1f;
-  --line-strong: #26272b;
+  --line: #232326;
+  --line-strong: #2d2d31;
 
-  /* Text. */
-  --text: #f7f8f8;
-  --secondary: #b4b7bd;
-  --muted: #8a8f98;
-  --faint: #62666d;
+  /* Text, three clear steps (sampled: #dddde7 / #949496 / #6c6d6f). */
+  --text: #e6e6ea;
+  --secondary: #a3a3a9;
+  --muted: #8a8a90;
+  --faint: #6c6c71;
 
-  /* Colour, used sparingly. */
+  /* Colour, used sparingly and never twice for different things. */
   --accent: #5e6ad2;
   --accent-hover: #6c78e0;
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
-  --s-update: #828bf3;
+  --s-update: #f0bf3a;
   --s-done: #4cb782;
   --s-failed: #eb5757;
-  --s-handoff: #d9a64e;
+  --s-handoff: #5e9cf5;
 
-  --radius: 6px;
-  --row: 32px;
+  /* One hue per update source, shown as a small dot. */
+  --src-sparkle: #b18cff;
+  --src-electron: #4fd1c5;
+  --src-appStore: #4ea7fc;
+  --src-github: #c4c4cc;
+  --src-homebrew: #f2994a;
+
+  --radius: 8px;
+  --row: 34px;
   --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
 
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.45;
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
 }
@@ -122,124 +133,156 @@ p {
   flex: 1;
 }
 
-/* Shell: sidebar on the canvas, content inset on a raised panel. */
+/* Shell: top bar on the canvas, content inset on a raised panel below. */
 
 .shell {
   display: flex;
+  flex-direction: column;
   height: 100%;
 }
 
-/* Sidebar */
+/* The window top, laid out like a classic Mac toolbar: a title row with the
+   logo centred (the window buttons sit at its left, titleBarStyle: Overlay),
+   then a row of large icon-and-label buttons. */
 
-.sidebar {
+.toolbar-shell {
+  flex: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  width: 220px;
-  flex-shrink: 0;
-  padding: 12px 8px 8px;
+  background: var(--bg);
+  -webkit-user-select: none;
 }
 
-.brand {
+.titlerow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 8px;
-  margin-bottom: 4px;
+  justify-content: center;
+  height: 40px;
 }
 
-.mark {
-  flex-shrink: 0;
-}
-
-.brand-name {
-  font-weight: 600;
+.title-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 
-.side-search {
+.title-logo .mark {
+  width: 20px;
+  height: 20px;
+}
+
+.toolrow {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 8px;
-  margin-bottom: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--raised);
-  color: var(--faint);
-  text-align: left;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 12px 4px;
 }
 
-.side-search span:not(.kbd-group) {
-  flex: 1;
-}
-
-.side-search:hover {
-  border-color: var(--line-strong);
-  color: var(--muted);
-}
-
-.side-group {
+.toolgroup {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.side-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--muted);
-  font-weight: 500;
-  text-align: left;
-}
-
-.side-item:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--secondary);
-}
-
-.side-item.active {
-  background: var(--active);
-  color: var(--text);
-}
-
-.side-label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.side-count {
-  color: var(--faint);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.side-item.active .side-count {
-  color: var(--muted);
-}
-
-.side-foot {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
   gap: 4px;
 }
 
-.side-status {
-  padding: 0 8px 4px 32px;
-  color: var(--faint);
+/* Each tool is a 92x60 target: icon over label, like a Mac toolbar item. */
+.tool {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 92px;
+  height: 60px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
   font-size: 12px;
+  font-weight: 500;
+  transition:
+    background 120ms var(--ease),
+    color 120ms var(--ease);
+}
+
+.tool.narrow {
+  width: 84px;
+}
+
+.tool:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.tool.current {
+  background: #232326;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tool.current .tool-icon {
+  color: var(--text);
+}
+
+.tool:disabled {
+  opacity: 1;
+  color: var(--muted);
+}
+
+.tool-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.tool-badge {
+  position: absolute;
+  top: 5px;
+  right: 18px;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--s-update);
+  color: #18181a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.tool-dot {
+  position: absolute;
+  top: 8px;
+  right: 24px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  background: var(--s-update);
+}
+
+.icon-btn {
+  position: relative;
+}
+
+/* Status bar along the bottom of the panel */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0 24px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Main panel */
@@ -249,10 +292,15 @@ p {
   flex-direction: column;
   flex: 1;
   min-width: 0;
-  margin: 8px 8px 8px 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  min-height: 0;
+  /* Inset on every side, so the container's curve reads against the chrome. */
+  margin: 4px 12px 12px;
+  border: 1px solid #1f1f22;
+  border-radius: 14px;
+  background:
+    radial-gradient(110% 80% at 0% 0%, #17171a 0%, rgba(23, 23, 26, 0) 60%),
+    var(--panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   overflow: hidden;
 }
 
@@ -260,9 +308,9 @@ p {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 44px;
+  height: 52px;
   flex-shrink: 0;
-  padding: 0 12px 0 20px;
+  padding: 0 20px 0 24px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -401,23 +449,39 @@ kbd {
   min-height: 0;
 }
 
+/* Inside the container, content is padded away from its curve and sits in
+   rounded cards, the way Linear sets activity and comments on the page. */
 .list-wrap {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px 28px;
+}
+
+.group,
+.list-wrap > .list {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--raised);
+  overflow: hidden;
+}
+
+.group .row:last-child,
+.list-wrap > .list .row:last-child {
+  border-bottom: 0;
 }
 
 .group-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
-  padding: 0 20px;
-  background: var(--raised);
+  height: 38px;
+  padding: 0 16px;
+  background: #1c1c1f;
   border-bottom: 1px solid var(--line);
   color: var(--secondary);
   font-weight: 500;
@@ -439,22 +503,41 @@ kbd {
   align-items: center;
   gap: 12px;
   height: var(--row);
-  padding: 0 20px;
+  padding: 6px 16px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
   white-space: nowrap;
 }
 
 .row:hover {
-  background: var(--raised);
+  background: var(--hover);
 }
 
 .row.selected {
-  background: var(--hover);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--active);
+  box-shadow: inset 2px 0 0 var(--muted);
 }
 
 .row.open {
   background: var(--active);
+}
+
+/* The new version as a pill, like a release in Linear's pipeline view: a
+   dark capsule, a coloured status mark, grey figures. */
+.vpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px 0 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: #0f0f11;
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.vpill svg {
+  color: var(--s-update);
 }
 
 .row .icon {
@@ -487,7 +570,8 @@ kbd {
 
 .versions {
   display: inline-flex;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -619,8 +703,11 @@ kbd {
   flex-direction: column;
   width: 340px;
   flex-shrink: 0;
-  border-left: 1px solid var(--line);
-  background: var(--panel);
+  margin: 16px 16px 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--raised);
+  overflow: hidden;
   animation: slide-in 120ms var(--ease);
 }
 
@@ -905,4 +992,290 @@ kbd {
 
 .toast.t-error {
   border-left: 2px solid var(--s-failed);
+}
+
+/* Settings */
+
+.settings {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 20px 40px;
+}
+
+.settings-group {
+  max-width: 640px;
+  margin: 0 auto 28px;
+}
+
+.settings-group h2 {
+  margin-bottom: 8px;
+  color: var(--secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  background: var(--raised);
+}
+
+.setting:first-of-type {
+  border-radius: 8px 8px 0 0;
+}
+
+.setting:last-child {
+  border-radius: 0 0 8px 8px;
+}
+
+.setting:only-of-type {
+  border-radius: 8px;
+}
+
+.setting + .setting {
+  border-top: 0;
+}
+
+.setting-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setting-title {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.setting-detail {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: var(--line-strong);
+  transition: background 120ms var(--ease);
+}
+
+.switch.on {
+  background: var(--accent);
+}
+
+.switch .knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f7f8f8;
+  transition: transform 120ms var(--ease);
+}
+
+.switch.on .knob {
+  transform: translateX(12px);
+}
+
+.select {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--hover);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.select:focus {
+  border-color: var(--accent);
+}
+
+/* Menu bar panel. Its window is transparent, so the panel draws its own
+   rounded, bordered card. */
+
+html.is-popover,
+html.is-popover body {
+  background: transparent;
+}
+
+.pop {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  flex-shrink: 0;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pop-title {
+  font-weight: 600;
+}
+
+.pop-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pop-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.pop-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 14px;
+}
+
+.pop-row:hover {
+  background: var(--raised);
+}
+
+.pop-row .icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.pop-row .monogram {
+  display: grid;
+  place-items: center;
+  background: var(--active);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.pop-name {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.pop-name .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pop-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pop-sub.p-done {
+  color: var(--s-done);
+}
+.pop-sub.p-failed {
+  color: var(--s-failed);
+}
+.pop-sub.p-handoff {
+  color: var(--s-handoff);
+}
+
+.btn.small {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.pop-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  height: 100%;
+  color: var(--secondary);
+}
+
+.pop-empty-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--s-done);
+}
+
+.pop-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--raised);
+}
+
+.pop-status {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Source dots: the one place each update source gets its colour. */
+
+.src {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.src::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.src-sparkle::before {
+  background: var(--src-sparkle);
+}
+.src-electron::before {
+  background: var(--src-electron);
+}
+.src-appStore::before {
+  background: var(--src-appStore);
+}
+.src-github::before {
+  background: var(--src-github);
+}
+.src-homebrew::before {
+  background: var(--src-homebrew);
+}
+
+.list-wrap > .empty {
+  flex: 1;
 }

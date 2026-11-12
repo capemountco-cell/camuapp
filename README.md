@@ -1,6 +1,6 @@
 # Camu
 
-Keeps every app on your Mac up to date. Black only, one line per app,
+Keeps every app on your Mac up to date. Dark, one line per app,
 no accounts, no tracking.
 
 Camu checks each app against every source that knows it (its Sparkle

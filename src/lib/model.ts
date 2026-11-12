@@ -7,6 +7,10 @@ import type { InstalledApp, Install, Phase, Report, Source } from "./native";
 
 export type Tab = "updates" | "current" | "other" | "ignored";
 
+/**
+ * Ignore and beta lists from before settings moved to the Rust side. Read
+ * once, merged into the stored settings, then cleared.
+ */
 export interface Prefs {
   /** Bundle ids whose updates are hidden. */
   ignored: string[];
@@ -15,6 +19,30 @@ export interface Prefs {
 }
 
 export const defaultPrefs: Prefs = { ignored: [], beta: [] };
+
+export function clearPrefs(storage: Pick<Storage, "removeItem"> | undefined = globalThis.localStorage) {
+  try {
+    storage?.removeItem(PREFS_KEY);
+  } catch {
+    // Nothing to clear.
+  }
+}
+
+/** Merge legacy preferences into settings; `null` when there is nothing to add. */
+export function mergeLegacy<T extends Prefs>(settings: T, legacy: Prefs): T | null {
+  const ignored = [...new Set([...settings.ignored, ...legacy.ignored])];
+  const beta = [...new Set([...settings.beta, ...legacy.beta])];
+  if (ignored.length === settings.ignored.length && beta.length === settings.beta.length) return null;
+  return { ...settings, ignored, beta };
+}
+
+export const CHECK_INTERVALS: { hours: number; label: string }[] = [
+  { hours: 0, label: "Never" },
+  { hours: 1, label: "Every hour" },
+  { hours: 6, label: "Every 6 hours" },
+  { hours: 24, label: "Every day" },
+  { hours: 168, label: "Every week" },
+];
 
 const PREFS_KEY = "camu.prefs.v1";
 

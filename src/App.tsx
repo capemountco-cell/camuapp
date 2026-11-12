@@ -5,25 +5,32 @@ import { DetailPanel } from "./components/DetailPanel";
 import { ArrowUpCircle, CheckCircle, EyeOff, Folder, Question, Refresh, Undo } from "./components/Icons";
 import { Kbd } from "./components/Kbd";
 import { Row } from "./components/Row";
-import { Sidebar } from "./components/Sidebar";
+import { SettingsView } from "./components/SettingsView";
+import { TopBar, type View } from "./components/TopBar";
 import {
   group,
   isBusy,
   isOneClick,
+  clearPrefs,
   loadPrefs,
   matches,
-  savePrefs,
+  mergeLegacy,
   toggle,
   updateGroupLabel,
   updateGroups,
-  type Prefs,
   type Row as RowData,
   type Tab,
 } from "./lib/model";
 import {
+  appVersion,
+  checkSelfUpdate,
   checkUpdates,
-  listApps,
+  events,
+  getSettings,
+  installSelfUpdate,
   listBackups,
+  selfUpdateStatus,
+  setSettings,
   nativeAvailable,
   onReport,
   onUpdate,
@@ -32,16 +39,29 @@ import {
   rollBack,
   updateApps,
   type Backup,
+  type SelfUpdate,
+  type Settings,
   type InstalledApp,
   type Phase,
   type Report,
 } from "./lib/native";
 
-const TAB_TITLE: Record<Tab, string> = {
+const TAB_TITLE: Record<View, string> = {
   updates: "Updates",
   current: "Up to date",
   other: "Unsupported",
   ignored: "Ignored",
+  settings: "Settings",
+};
+
+const NO_SETTINGS: Settings = {
+  checkEveryHours: 6,
+  notify: true,
+  autoUpdate: true,
+  menuBar: true,
+  showInDock: true,
+  ignored: [],
+  beta: [],
 };
 
 const GO_KEY: Record<Tab, string> = { updates: "U", current: "C", other: "S", ignored: "I" };
@@ -54,6 +74,15 @@ function timeAgo(date: Date, now: number): string {
   return hours < 24 ? `${hours}h ago` : date.toLocaleDateString();
 }
 
+/** "in 5h 12m", "in 3m", "soon". */
+function untilLabel(ms: number): string {
+  if (ms <= 60_000) return "soon";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `in ${hours}h ${minutes % 60}m` : `in ${Math.round(hours / 24)}d`;
+}
+
 interface Toast {
   id: number;
   text: string;
@@ -61,7 +90,10 @@ interface Toast {
 }
 
 export function App() {
-  const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs());
+  const [prefs, setPrefsState] = useState<Settings>(NO_SETTINGS);
+  const [version, setVersion] = useState<string | null>(null);
+  const [selfUpdate, setSelfUpdate] = useState<SelfUpdate | null>(null);
+  const [checkingSelf, setCheckingSelf] = useState(false);
   const [apps, setApps] = useState<InstalledApp[] | null>(nativeAvailable() ? null : []);
   const [reports, setReports] = useState<Map<string, Report>>(new Map());
   const [phases, setPhases] = useState<Map<string, Phase>>(new Map());
@@ -69,7 +101,8 @@ export function App() {
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
-  const [tab, setTab] = useState<Tab>("updates");
+  const [view, setView] = useState<View>("updates");
+  const tab: Tab = view === "settings" ? "updates" : view;
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -86,13 +119,21 @@ export function App() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
   }, []);
 
-  const updatePrefs = useCallback((change: (p: Prefs) => Prefs) => {
-    setPrefs((current) => {
+  const saveSettings = useCallback(
+    (next: Settings) => {
+      setPrefsState(next);
+      setSettings(next).then(setPrefsState, (c) => toast(String(c), "error"));
+    },
+    [toast],
+  );
+  const updatePrefs = useCallback(
+    (change: (p: Settings) => Settings) => setPrefsState((current) => {
       const next = change(current);
-      savePrefs(next);
+      setSettings(next).then(setPrefsState, (c) => toast(String(c), "error"));
       return next;
-    });
-  }, []);
+    }),
+    [toast],
+  );
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
@@ -103,38 +144,70 @@ export function App() {
     if (nativeAvailable()) listBackups().then(setBackups, () => {});
   }, []);
 
-  const check = useCallback(async () => {
+  // State follows events, so checks and updates started from the menu bar
+  // or the schedule show up here exactly like ones started in the window.
+  const check = useCallback(() => {
     if (checking || updating) return;
-    setChecking(true);
-    setReports(new Map());
-    setPhases(new Map());
-    try {
-      setApps(await listApps());
-      await checkUpdates(prefs.beta);
-      setLastChecked(new Date());
-    } catch (cause) {
-      toast(cause instanceof Error ? cause.message : String(cause), "error");
-    } finally {
-      setChecking(false);
-    }
-  }, [checking, updating, prefs.beta, toast]);
+    checkUpdates().catch((cause) => {
+      if (!String(cause).includes("already running")) toast(String(cause), "error");
+    });
+  }, [checking, updating, toast]);
 
-  // Reports and update progress stream in as events.
   useEffect(() => {
-    const stops: (() => void)[] = [];
-    void onReport((report) => setReports((m) => new Map(m).set(report.id, report))).then((s) => stops.push(s));
-    void onUpdate(({ id, ...phase }) => setPhases((m) => new Map(m).set(id, phase as Phase))).then((s) =>
-      stops.push(s),
-    );
-    return () => stops.forEach((s) => s());
-  }, []);
+    const subscriptions = [
+      events.checkStarted((list) => {
+        setApps(list);
+        setReports(new Map());
+        setPhases(new Map());
+        setChecking(true);
+      }),
+      onReport((report) => setReports((m) => new Map(m).set(report.id, report))),
+      events.checkFinished((secs) => {
+        setChecking(false);
+        setLastChecked(new Date(secs * 1000));
+      }),
+      events.updateStarted((ids) => {
+        setUpdating(true);
+        setPhases((m) => {
+          const next = new Map(m);
+          ids.forEach((id) => next.set(id, { phase: "queued" }));
+          return next;
+        });
+      }),
+      onUpdate(({ id, ...phase }) => setPhases((m) => new Map(m).set(id, phase as Phase))),
+      events.updateFinished(() => {
+        setUpdating(false);
+        refreshBackups();
+      }),
+      events.selfUpdate(setSelfUpdate),
+      events.navigate((v) => {
+        if (["updates", "current", "other", "ignored", "settings"].includes(v)) setView(v as View);
+      }),
+      events.select((id) => {
+        setSelected(id);
+        setPanelOpen(true);
+        setView("updates");
+      }),
+    ];
+    return () => subscriptions.forEach((p) => void p.then((stop) => stop()));
+  }, [refreshBackups]);
 
   const started = useRef(false);
   useEffect(() => {
     if (started.current || !nativeAvailable()) return;
     started.current = true;
     refreshBackups();
-    void check();
+    appVersion().then(setVersion, () => {});
+    selfUpdateStatus().then(setSelfUpdate, () => {});
+    // Settings live on the Rust side now; bring over choices made before.
+    getSettings()
+      .then(async (stored) => {
+        const merged = mergeLegacy(stored, loadPrefs());
+        setPrefsState(merged ? await setSettings(merged) : stored);
+        clearPrefs();
+      })
+      .catch(() => {})
+      .finally(() => check());
   }, [check, refreshBackups]);
 
   const rows: RowData[] = useMemo(
@@ -166,25 +239,11 @@ export function App() {
   const updateCount = tabs.updates.filter((r) => phases.get(r.app.path)?.phase !== "done").length;
 
   const runUpdates = useCallback(
-    async (targets: RowData[]) => {
+    (targets: RowData[]) => {
       if (updating || targets.length === 0) return;
-      setUpdating(true);
-      const ids = targets.map((r) => r.app.path);
-      setPhases((m) => {
-        const next = new Map(m);
-        ids.forEach((id) => next.set(id, { phase: "queued" }));
-        return next;
-      });
-      try {
-        await updateApps(ids);
-      } catch (cause) {
-        toast(String(cause), "error");
-      } finally {
-        setUpdating(false);
-        refreshBackups();
-      }
+      updateApps(targets.map((r) => r.app.path)).catch((cause) => toast(String(cause), "error"));
     },
-    [updating, toast, refreshBackups],
+    [updating, toast],
   );
 
   // Summarise a run once it is over.
@@ -209,10 +268,10 @@ export function App() {
     if (parts.length) toast(parts.join(" · "), failed ? "error" : "ok");
   }, [updating, phases, toast]);
 
-  const updateAll = useCallback(() => void runUpdates(pending), [pending, runUpdates]);
+  const updateAll = useCallback(() => runUpdates(pending), [pending, runUpdates]);
 
   const act = {
-    update: (row: RowData) => void runUpdates([row]),
+    update: (row: RowData) => runUpdates([row]),
     ignore: (row: RowData) => updatePrefs((p) => ({ ...p, ignored: toggle(p.ignored, row.app.bundleId) })),
     beta: (row: RowData) => updatePrefs((p) => ({ ...p, beta: toggle(p.beta, row.app.bundleId) })),
     reveal: (row: RowData) => void revealApp(row.app.path).catch((c) => toast(String(c), "error")),
@@ -227,8 +286,8 @@ export function App() {
       ),
   };
 
-  const goTab = useCallback((next: Tab) => {
-    setTab(next);
+  const goTab = useCallback((next: View) => {
+    setView(next);
     setSelected(null);
     setPanelOpen(false);
   }, []);
@@ -254,9 +313,14 @@ export function App() {
         return;
       }
       if (palette) return;
+      if (e.metaKey && key === ",") {
+        e.preventDefault();
+        goTab("settings");
+        return;
+      }
       if (e.metaKey && key === "r") {
         e.preventDefault();
-        void check();
+        check();
         return;
       }
       if (e.metaKey && key === "u") {
@@ -331,7 +395,14 @@ export function App() {
     label: "Check for updates",
     keys: ["⌘", "R"],
     icon: <Refresh />,
-    run: () => void check(),
+    run: () => check(),
+  });
+  commands.push({
+    id: "settings",
+    group: "Go to",
+    label: "Settings",
+    keys: ["⌘", ","],
+    run: () => goTab("settings"),
   });
   if (selectedRow) {
     const r = selectedRow;
@@ -374,7 +445,7 @@ export function App() {
     other: <Question />,
     ignored: <EyeOff />,
   };
-  for (const id of Object.keys(TAB_TITLE) as Tab[])
+  for (const id of Object.keys(viewIcons) as Tab[])
     commands.push({
       id: `go-${id}`,
       group: "Go to",
@@ -390,7 +461,7 @@ export function App() {
       label: row.app.name,
       run: () => {
         const target = (Object.keys(tabs) as Tab[]).find((t) => tabs[t].includes(row));
-        if (target) setTab(target);
+        if (target) setView(target);
         setFilter("");
         setSelected(row.app.path);
         setPanelOpen(true);
@@ -400,11 +471,10 @@ export function App() {
   const status = checking
     ? `Checking ${reports.size} of ${apps?.length ?? "…"}`
     : lastChecked
-      ? `Checked ${timeAgo(lastChecked, now)}`
+      ? `Last checked ${timeAgo(lastChecked, now)}`
       : nativeAvailable()
         ? "Not checked yet"
         : "Open Camu as an app to check";
-
   const counts: Record<Tab, number> = {
     updates: updateCount,
     current: tabs.current.length,
@@ -412,23 +482,30 @@ export function App() {
     ignored: tabs.ignored.length,
   };
 
+  const nextCheck =
+    !checking && lastChecked && prefs.checkEveryHours > 0
+      ? untilLabel(lastChecked.getTime() + prefs.checkEveryHours * 3_600_000 - now)
+      : null;
+
+
   return (
     <div className="shell">
-      <Sidebar
-        tab={tab}
+      <TopBar
+        view={view}
         counts={counts}
         checking={checking}
-        status={status}
-        onTab={goTab}
-        onCheck={() => void check()}
+        selfUpdate={selfUpdate}
+        onView={goTab}
+        onCheck={check}
         onPalette={() => setPalette(true)}
       />
 
       <section className="main">
         <header className="header">
-          <h1>{TAB_TITLE[tab]}</h1>
-          <span className="header-count">{counts[tab]}</span>
+          <h1>{TAB_TITLE[view]}</h1>
+          {view !== "settings" && <span className="header-count">{counts[tab]}</span>}
           <span className="spacer" />
+          {view !== "settings" && (
           <input
             ref={filterInput}
             className="filter"
@@ -439,7 +516,8 @@ export function App() {
             onChange={(e) => setFilter(e.target.value)}
             spellCheck={false}
           />
-          {tab === "updates" && (
+          )}
+          {view === "updates" && (
             <button
               type="button"
               className="btn primary"
@@ -457,6 +535,30 @@ export function App() {
           )}
         </header>
 
+        {view === "settings" ? (
+          <SettingsView
+            settings={prefs}
+            version={version}
+            selfUpdate={selfUpdate}
+            checkingSelf={checkingSelf}
+            onChange={saveSettings}
+            onLink={act.link}
+            onCheckSelf={() => {
+              setCheckingSelf(true);
+              checkSelfUpdate()
+                .then((found) => {
+                  setSelfUpdate(found);
+                  if (!found) toast("Camu is up to date", "ok");
+                })
+                .catch((c) => toast(String(c), "error"))
+                .finally(() => setCheckingSelf(false));
+            }}
+            onInstallSelf={() => {
+              toast("Downloading Camu…");
+              installSelfUpdate().catch((c) => toast(String(c), "error"));
+            }}
+          />
+        ) : (
         <div className="content">
           <div className="list-wrap" role="listbox" aria-label={TAB_TITLE[tab]}>
             {apps === null ? (
@@ -538,6 +640,23 @@ export function App() {
             />
           )}
         </div>
+        )}
+        <footer className="statusbar">
+          <span>
+            {apps?.length ?? 0} apps
+            {prefs.ignored.length > 0 && <> · {prefs.ignored.length} ignored</>}
+            {counts.updates > 0 && (
+              <>
+                {" · "}
+                <span className="accent">{counts.updates} with updates</span>
+              </>
+            )}
+          </span>
+          <span className="spacer" />
+          <span>{status}</span>
+          {nextCheck && <span className="faint">Next check {nextCheck}</span>}
+          {prefs.autoUpdate && prefs.checkEveryHours > 0 && <span className="faint">Auto-install on</span>}
+        </footer>
       </section>
 
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}

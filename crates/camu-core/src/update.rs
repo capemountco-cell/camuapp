@@ -506,7 +506,40 @@ impl Updater {
         }
     }
 
-    /// Put an app's backup back in place of the installed copy.
+    /// Download and verify a new version of `app` (Camu itself, for
+    /// self-updates) without installing it. Returns the verified new bundle,
+    /// which stays in Camu's cache until the next update run.
+    pub fn prepare(
+        &self,
+        app: &InstalledApp,
+        url: &str,
+        target_version: &str,
+    ) -> Result<PathBuf, String> {
+        let job = Job {
+            id: app.id(),
+            app: app.clone(),
+            install: Install::Download {
+                url: url.to_string(),
+            },
+            target_version: target_version.to_string(),
+        };
+        let dir = self.dirs.staging.with_file_name("self-update");
+        let _ = fs::remove_dir_all(&dir);
+        let scoped = Updater {
+            http: HttpFetch::new(),
+            dirs: Dirs {
+                staging: dir,
+                backups: self.dirs.backups.clone(),
+            },
+        };
+        let staged = scoped.stage(0, &job, &|_, _| {})?;
+        self.back_up(app)?;
+        match staged.payload {
+            Payload::App(path) => Ok(path),
+            Payload::Pkg(_) => Err("the update is an installer package; install it by hand".into()),
+        }
+    }
+
     pub fn roll_back(&self, app: &InstalledApp) -> Result<String, String> {
         let backup = list_backups(&self.dirs.backups)
             .into_iter()

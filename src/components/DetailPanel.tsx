@@ -66,7 +66,9 @@ export function DetailPanel(props: Props) {
               <dt>Latest</dt>
               <dd className={`mono${best.isUpdate ? " accent" : ""}`}>{best.version}</dd>
               <dt>Source</dt>
-              <dd>{sourceLabel[best.source]}</dd>
+              <dd>
+                <span className={`src src-${best.source}`}>{sourceLabel[best.source]}</span>
+              </dd>
             </>
           )}
           {report && hasUpdate && (
@@ -85,7 +87,7 @@ export function DetailPanel(props: Props) {
             <ul className="sources">
               {report.findings.map((f) => (
                 <li key={f.source}>
-                  <span>{sourceLabel[f.source]}</span>
+                  <span className={`src src-${f.source}`}>{sourceLabel[f.source]}</span>
                   <span className={`mono${f.isUpdate ? " accent" : ""}`}>{f.version}</span>
                 </li>
               ))}

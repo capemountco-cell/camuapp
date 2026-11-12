@@ -91,8 +91,11 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 
 export const listApps = () => call<InstalledApp[]>("list_apps");
 
-/** Resolves with the number of apps checked once every report has arrived. */
-export const checkUpdates = (includeBeta: string[]) => call<number>("check_updates", { includeBeta });
+/**
+ * Check every app (beta channels come from settings). Resolves with the
+ * number checked. Progress arrives as events, also for scheduled checks.
+ */
+export const checkUpdates = () => call<number>("check_updates");
 
 /** Calls `handler` for each report as `checkUpdates` produces it. */
 export async function onReport(handler: (report: Report) => void): Promise<UnlistenFn> {
@@ -107,6 +110,75 @@ export async function onUpdate(handler: (event: UpdateEvent) => void): Promise<U
   if (!nativeAvailable()) return () => {};
   return listen<UpdateEvent>("camu://update", (event) => handler(event.payload));
 }
+
+/** Stored by the Rust side, so the menu bar and schedule can read them. */
+export interface Settings {
+  checkEveryHours: number;
+  notify: boolean;
+  autoUpdate: boolean;
+  menuBar: boolean;
+  showInDock: boolean;
+  ignored: string[];
+  beta: string[];
+}
+
+export interface SelfUpdate {
+  current: string;
+  version: string;
+  notes: string | null;
+  pageUrl: string | null;
+  downloadUrl: string | null;
+  canInstall: boolean;
+}
+
+/** What the menu bar panel shows. */
+export interface Snapshot {
+  reports: Report[];
+  lastCheck: number | null;
+  checking: boolean;
+  updating: boolean;
+}
+
+export const snapshot = () => call<Snapshot>("snapshot");
+/** Show the main window, optionally on a view, and close the menu bar panel. */
+export const showMain = (view?: string) => call<void>("show_main", { view: view ?? null });
+
+/** True in the panel that opens under the menu bar icon. */
+export function isPopover(): boolean {
+  if (!nativeAvailable()) return new URLSearchParams(window.location.search).has("popover");
+  const internals = (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } })
+    .__TAURI_INTERNALS__;
+  return internals?.metadata?.currentWindow?.label === "popover";
+}
+
+export const getSettings = () => call<Settings>("get_settings");
+/** Resolves with the settings as stored, repaired if a combination made no sense. */
+export const setSettings = (settings: Settings) => call<Settings>("set_settings", { settings });
+export const appVersion = () => call<string>("app_version");
+export const selfUpdateStatus = () => call<SelfUpdate | null>("self_update_status");
+export const checkSelfUpdate = () => call<SelfUpdate | null>("check_self_update");
+/** Installs and relaunches Camu; only resolves if it fails. */
+export const installSelfUpdate = () => call<void>("install_self_update");
+
+async function on<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
+  if (!nativeAvailable()) return () => {};
+  return listen<T>(event, (e) => handler(e.payload));
+}
+
+/** Lifecycle events, sent for checks and updates started anywhere. */
+export const events = {
+  checkStarted: (h: (apps: InstalledApp[]) => void) => on("camu://check-started", h),
+  checkFinished: (h: (secs: number) => void) => on("camu://check-finished", h),
+  updateStarted: (h: (ids: string[]) => void) => on("camu://update-started", h),
+  updateFinished: (h: () => void) => on("camu://update-finished", h),
+  selfUpdate: (h: (found: SelfUpdate | null) => void) => on("camu://self-update", h),
+  /** The menu bar panel was opened. */
+  popoverShown: (h: () => void) => on("camu://popover-shown", h),
+  /** The menu bar panel asked the main window to show a view. */
+  navigate: (h: (view: string) => void) => on("camu://navigate", h),
+  /** The menu bar asked to show an app. */
+  select: (h: (id: string) => void) => on("camu://select", h),
+};
 
 export const listBackups = () => call<Backup[]>("list_backups");
 
