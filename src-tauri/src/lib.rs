@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use camu_core::backups;
 use camu_core::check::Prefs;
+use camu_core::feedback;
 use camu_core::fetch::HttpFetch;
 use camu_core::history::{self, Entry, How, Outcome};
 use camu_core::selfupdate::{self, SelfUpdate};
@@ -957,6 +958,49 @@ async fn app_icon(path: PathBuf, icon_file: String) -> Result<Option<String>, St
     blocking(move || icon::data_url(&path, &icon_file)).await
 }
 
+/// Is this a new copy of Camu that camu.cc hasn't counted yet? Copies already
+/// in use before counting existed are marked counted and left alone.
+fn install_is_fresh(inner: &Inner) -> bool {
+    let mut state = inner.state.lock().unwrap();
+    if state.install_counted {
+        return false;
+    }
+    if state.last_check.is_some() {
+        state.install_counted = true;
+        drop(state);
+        inner.save_state();
+        return false;
+    }
+    true
+}
+
+/// Tell camu.cc once that Camu was installed: only Camu's version is sent.
+fn count_install(app: &AppHandle, inner: &Inner) {
+    let camu = app.package_info().version.to_string();
+    let fetch = HttpFetch::new();
+    // A few tries, in case the Mac is still joining a network.
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        }
+        if feedback::send_install(&fetch, &camu) {
+            inner.state.lock().unwrap().install_counted = true;
+            inner.save_state();
+            return;
+        }
+    }
+}
+
+/// Send a wrong-version report the user asked to send.
+#[tauri::command]
+async fn send_report(app: AppHandle, report: feedback::WrongVersion) -> Result<(), String> {
+    let camu = app.package_info().version.to_string();
+    blocking(move || {
+        feedback::send_report(&HttpFetch::new(), report, &camu, platform::os_version())
+    })
+    .await?
+}
+
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
     launch::open_url(&url)
@@ -1030,8 +1074,14 @@ pub fn run() {
             apply_dock(&handle, &inner.settings());
             refresh_tray(&handle, &inner);
 
+            // Decided before the first check, which sets `last_check`.
+            let fresh = install_is_fresh(&inner);
             let (h, i) = (handle.clone(), inner.clone());
             std::thread::spawn(move || scheduler(h, i));
+            if fresh {
+                let (h, i) = (handle.clone(), inner.clone());
+                std::thread::spawn(move || count_install(&h, &i));
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1081,6 +1131,7 @@ pub fn run() {
             reveal_backups,
             app_icon,
             open_url,
+            send_report,
             open_app,
             reveal_app
         ])

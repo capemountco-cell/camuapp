@@ -10,6 +10,11 @@ pub trait Fetch: Send + Sync {
     fn get(&self, url: &str) -> Result<String, String>;
 }
 
+/// Send a small JSON body (camu.cc's report and install endpoints).
+pub trait Post: Send + Sync {
+    fn post_json(&self, url: &str, body: &str) -> Result<(), String>;
+}
+
 /// Keeps successful answers from rate-limited services (GitHub's API, the
 /// App Store's lookup) for `ttl`, so repeated checks don't exhaust their
 /// limits. Everything else passes straight through.
@@ -119,6 +124,20 @@ impl Fetch for HttpFetch {
             .with_config()
             .limit(MAX_BODY)
             .read_to_string()
+            .map_err(|e| format!("{url}: {e}"))
+    }
+}
+
+impl Post for HttpFetch {
+    fn post_json(&self, url: &str, body: &str) -> Result<(), String> {
+        if !url.starts_with("https://") {
+            return Err(format!("not a secure address: {url}"));
+        }
+        self.agent
+            .post(url)
+            .header("Content-Type", "application/json")
+            .send(body)
+            .map(|_| ())
             .map_err(|e| format!("{url}: {e}"))
     }
 }

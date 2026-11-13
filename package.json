@@ -1,6 +1,6 @@
 {
   "name": "camu",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "A native macOS app built with Tauri 2, Rust and React.",

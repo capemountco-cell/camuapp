@@ -3,7 +3,7 @@
  * so they are tested without a window.
  */
 
-import type { Arch, Hold, InstalledApp, Install, Notice, Phase, Report, Source } from "./native";
+import type { Arch, Hold, InstalledApp, Install, Notice, Phase, Report, Source, WrongVersion } from "./native";
 
 export type Tab = "updates" | "current" | "other" | "ignored";
 
@@ -245,6 +245,25 @@ export function wrongVersionReport(row: Row, camuVersion: string | null): string
   }
   for (const e of report?.errors ?? []) lines.push(`${sourceLabel[e.source]}: no answer (${e.message})`);
   return lines.join("\n");
+}
+
+/** The report sent to camu.cc: what the user has, and what Camu found. */
+export function wrongVersionPayload(row: Row): WrongVersion {
+  const { app, report } = row;
+  const findings = report?.findings ?? [];
+  const best = report?.best ?? findings.find((f) => f.isUpdate) ?? findings[0];
+  const withBuild = (version: string, build: string | null | undefined) =>
+    build && build !== version ? `${version} (build ${build})` : version;
+  const lines = wrongVersionReport(row, null).split("\n").slice(3);
+  return {
+    app: app.name,
+    bundleId: app.bundleId,
+    installed: withBuild(app.version, app.build),
+    found: best ? withBuild(best.version, best.build) : "",
+    source: best?.source ?? "",
+    url: best?.pageUrl ?? best?.releaseNotesUrl ?? best?.downloadUrl ?? "",
+    note: lines.join(" · "),
+  };
 }
 
 /** A phase that is still moving. */

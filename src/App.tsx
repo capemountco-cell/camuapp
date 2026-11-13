@@ -13,6 +13,7 @@ import {
   checkTrouble,
   group,
   updateAllRows,
+  wrongVersionPayload,
   wrongVersionReport,
   isBusy,
   isOneClick,
@@ -42,6 +43,7 @@ import {
   onReport,
   onUpdate,
   openUrl,
+  sendReport,
   revealApp,
   rollBack,
   updateApps,
@@ -334,10 +336,14 @@ export function App() {
         (c) => toast(String(c), "error"),
       ),
     report: (row: RowData) => {
-      const text = wrongVersionReport(row, version);
-      navigator.clipboard.writeText(text).then(
-        () => toast("Copied what Camu saw. Paste it in a message to the Camu team.", "ok"),
-        () => toast("Couldn't copy the report", "error"),
+      sendReport(wrongVersionPayload(row)).then(
+        () => toast(`Thanks! Your report on ${row.app.name} was sent to the Camu team.`, "ok"),
+        // Offline or camu.cc down: keep what Camu saw so it isn't lost.
+        () =>
+          navigator.clipboard.writeText(wrongVersionReport(row, version)).then(
+            () => toast("Couldn't send the report, so it's copied instead. Paste it in a message to the Camu team.", "error"),
+            () => toast("Couldn't send the report. Check your connection and try again.", "error"),
+          ),
       );
     },
   };

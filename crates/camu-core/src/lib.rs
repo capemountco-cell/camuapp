@@ -8,6 +8,7 @@ pub mod app;
 pub mod arch;
 pub mod backups;
 pub mod check;
+pub mod feedback;
 pub mod fetch;
 pub mod history;
 pub mod icon;
