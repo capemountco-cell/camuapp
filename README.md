@@ -14,8 +14,15 @@ Built with Tauri 2, Rust and React, from the Mac App Template.
 ## Download
 
 Get the latest `.dmg` from
-[Releases](https://github.com/capemountco-cell/camuapp/releases/latest). It is
-one universal build for Apple silicon and Intel, and needs macOS 12 or newer.
+[Releases](https://github.com/capemountco-cell/camuapp/releases/latest), or
+link straight to it: from 0.2.1 on,
+<https://github.com/capemountco-cell/camuapp/releases/latest/download/Camu.dmg>
+always downloads the newest release. It is one universal build for Apple
+silicon and Intel, and needs macOS 12 or newer.
+
+Once installed, Camu keeps itself up to date: it checks for a new release
+once a day and, with automatic installs on (the default), installs it and
+relaunches.
 
 Builds are not yet signed with an Apple Developer ID, so the first time you
 open Camu macOS says it "cannot be verified". Approve it once in System

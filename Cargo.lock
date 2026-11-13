@@ -400,7 +400,7 @@ dependencies = [
 
 [[package]]
 name = "camu"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "camu-core",
  "serde",
@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "camu-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "plist",
  "roxmltree",

@@ -98,7 +98,7 @@ export function SettingsView({ settings, version, selfUpdate, checkingSelf, onCh
           title={`Camu ${version ?? ""}`.trim()}
           detail={
             selfUpdate
-              ? `Camu ${selfUpdate.version} is available.${selfUpdate.canInstall ? "" : " This copy isn't signed with a Developer ID, so download it from the release page."}`
+              ? `Camu ${selfUpdate.version} is available.${selfUpdate.canInstall ? "" : " Download it from the release page."}`
               : "No accounts, no analytics. Camu talks only to the update sources it checks."
           }
         >

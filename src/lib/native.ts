@@ -128,6 +128,7 @@ export interface SelfUpdate {
   notes: string | null;
   pageUrl: string | null;
   downloadUrl: string | null;
+  sha256: string | null;
   canInstall: boolean;
 }
 

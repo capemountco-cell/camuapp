@@ -272,6 +272,18 @@ impl Updater {
 
     /// Download, unpack and verify one app.
     fn stage(&self, n: usize, job: &Job, send: &dyn Fn(&str, Phase)) -> Result<Staged, String> {
+        self.stage_pinned(n, job, send, None)
+    }
+
+    /// `stage`, optionally checking the download against a published SHA-256
+    /// first. Only Camu's own updates pass one.
+    fn stage_pinned(
+        &self,
+        n: usize,
+        job: &Job,
+        send: &dyn Fn(&str, Phase),
+        sha256: Option<&str>,
+    ) -> Result<Staged, String> {
         let Install::Download { url } = &job.install else {
             return Err("not a download".into());
         };
@@ -292,6 +304,20 @@ impl Updater {
         })?;
 
         send(&job.id, Phase::Verifying);
+        let checksum_matched = match sha256 {
+            Some(want) => {
+                let out =
+                    macos::run_ok("/usr/bin/shasum", &["-a", "256", &file.to_string_lossy()])?;
+                let got = parse_sha256(&out).ok_or("couldn't checksum the download")?;
+                if !got.eq_ignore_ascii_case(want) {
+                    return Err(
+                        "the download doesn't match the checksum published with the release".into(),
+                    );
+                }
+                true
+            }
+            None => false,
+        };
         let payload = unpack(&file, &unpacked, &job.app.bundle_id)?;
         let old_team = macos::team_id(&job.app.path);
         match &payload {
@@ -317,9 +343,12 @@ impl Updater {
                     ));
                 }
                 macos::verify_signature(new)?;
-                trust(old_team.as_deref(), macos::team_id(new).as_deref(), || {
-                    macos::gatekeeper_accepts(new)
-                })?;
+                self_trust(
+                    old_team.as_deref(),
+                    macos::team_id(new).as_deref(),
+                    checksum_matched,
+                    || macos::gatekeeper_accepts(new),
+                )?;
             }
             Payload::Pkg(pkg) => {
                 let out = macos::run_ok(
@@ -508,12 +537,15 @@ impl Updater {
 
     /// Download and verify a new version of `app` (Camu itself, for
     /// self-updates) without installing it. Returns the verified new bundle,
-    /// which stays in Camu's cache until the next update run.
+    /// which stays in Camu's cache until the next update run. `sha256` is the
+    /// checksum published with the release, which an ad-hoc signed Camu needs
+    /// in place of a matching Developer ID.
     pub fn prepare(
         &self,
         app: &InstalledApp,
         url: &str,
         target_version: &str,
+        sha256: Option<&str>,
     ) -> Result<PathBuf, String> {
         let job = Job {
             id: app.id(),
@@ -532,7 +564,7 @@ impl Updater {
                 backups: self.dirs.backups.clone(),
             },
         };
-        let staged = scoped.stage(0, &job, &|_, _| {})?;
+        let staged = scoped.stage_pinned(0, &job, &|_, _| {}, sha256)?;
         self.back_up(app)?;
         match staged.payload {
             Payload::App(path) => Ok(path),
@@ -645,6 +677,29 @@ pub fn trust(
         (None, Some(_)) if gatekeeper() => Ok(()),
         (None, Some(_)) => Err("the download isn't notarized by Apple".into()),
     }
+}
+
+/// `trust`, plus one case for Camu's own updates: an ad-hoc signed Camu may
+/// be replaced by an ad-hoc signed download when the download matched the
+/// SHA-256 published with Camu's release. Without a checksum this is `trust`.
+pub fn self_trust(
+    old_team: Option<&str>,
+    new_team: Option<&str>,
+    checksum_matched: bool,
+    gatekeeper: impl FnOnce() -> bool,
+) -> Result<(), String> {
+    match (old_team, new_team) {
+        (None, None) if checksum_matched => Ok(()),
+        _ => trust(old_team, new_team, gatekeeper),
+    }
+}
+
+/// The hash from `shasum -a 256` output or a `.sha256` file
+/// (`<64 hex digits>  <file name>`).
+pub fn parse_sha256(text: &str) -> Option<String> {
+    let first = text.split_whitespace().next()?;
+    (first.len() == 64 && first.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| first.to_ascii_lowercase())
 }
 
 /// True when the current user can't move the app themselves.
@@ -964,6 +1019,27 @@ mod tests {
             "notarized replaces unsigned"
         );
         assert!(trust(None, Some("TEAM1"), || false).is_err());
+    }
+
+    #[test]
+    fn camu_self_updates_need_a_matching_checksum_when_unsigned() {
+        assert!(self_trust(None, None, true, || false).is_ok());
+        assert!(self_trust(None, None, false, || true).is_err());
+        // A signed Camu still demands the same team, checksum or not.
+        assert!(self_trust(Some("TEAM1"), None, true, || true).is_err());
+        assert!(self_trust(Some("TEAM1"), Some("TEAM2"), true, || true).is_err());
+        assert!(self_trust(Some("TEAM1"), Some("TEAM1"), false, || false).is_ok());
+    }
+
+    #[test]
+    fn reads_sha256_lines() {
+        let h = "AB".repeat(32);
+        assert_eq!(
+            parse_sha256(&format!("{h}  release/Camu.dmg\n")),
+            Some(h.to_lowercase())
+        );
+        assert_eq!(parse_sha256("not-a-hash  x"), None);
+        assert_eq!(parse_sha256(""), None);
     }
 
     #[test]
