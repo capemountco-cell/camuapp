@@ -19,6 +19,9 @@ use crate::InstalledApp;
 
 pub const OWNER: &str = "capemountco-cell";
 pub const REPO: &str = "camuapp";
+/// Where people download Camu by hand: the website, which always serves the
+/// newest build. Shown when Camu can't install an update itself.
+pub const DOWNLOAD_PAGE: &str = "https://camu.cc/download";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,7 +91,7 @@ pub fn check(
         sha256,
         version: found.version,
         notes: found.release_notes,
-        page_url: found.release_notes_url,
+        page_url: Some(DOWNLOAD_PAGE.to_string()),
         download_url: found.download_url,
     }))
 }
@@ -176,6 +179,7 @@ mod tests {
         let found = check(&fetch, "0.1.0", None).unwrap().unwrap();
         assert_eq!(found.version, "0.2.0");
         assert_eq!(found.download_url.as_deref(), Some(DMG));
+        assert_eq!(found.page_url.as_deref(), Some(DOWNLOAD_PAGE));
         assert_eq!(found.sha256.as_deref(), Some(hash.as_str()));
         assert!(found.can_install);
         assert_eq!(check(&fetch, "0.2.0", None).unwrap(), None);
