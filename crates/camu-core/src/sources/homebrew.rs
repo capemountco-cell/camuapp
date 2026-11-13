@@ -181,74 +181,17 @@ pub fn brew_path() -> Option<PathBuf> {
 
 pub fn finding(app: &InstalledApp, cask: &Cask) -> Option<Finding> {
     // "latest" casks have no version to compare.
-    let (remote, build) = split_cask_version(&cask.version, &app.version);
+    let (remote, build) = version::split_release(&cask.version, &app.version);
     if !remote.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
     let mut f = Finding::new(Source::Homebrew, remote);
     f.build = build.map(str::to_string);
-    f.is_update = cask_is_newer(remote, build, app);
+    f.is_update = version::is_update(&cask.version, None, &app.version, app.build.as_deref());
     f.page_url = cask.homepage.clone();
     f.download_url = cask.url.clone();
     f.cask = Some(cask.token.clone());
     Some(f)
-}
-
-/// Split a cask's version into the app's version and, when Homebrew adds
-/// one, the build. Casks often carry more than the app's own version:
-///
-/// - `2.5.0,530`: a build after a comma.
-/// - `27.1.0-58756`: a build after a dash (Parallels).
-/// - `3.6.11-0102f49a`: a commit hash after a dash (GitHub Desktop), dropped.
-/// - `6.7.0.3`: an internal fourth number on a three-part version
-///   (MEGAsync), read as a build when the rest matches the installed version.
-fn split_cask_version<'a>(raw: &'a str, installed: &str) -> (&'a str, Option<&'a str>) {
-    let raw = raw.trim();
-    let (main, mut build) = match raw.split_once(',') {
-        Some((main, rest)) => (main, rest.split(',').next().filter(|b| !b.is_empty())),
-        None => (raw, None),
-    };
-    let mut main = version::clean(main);
-
-    if let Some((head, tail)) = main.rsplit_once('-') {
-        let hex = tail.len() >= 7 && tail.bytes().all(|b| b.is_ascii_hexdigit());
-        let commit = hex && tail.bytes().any(|b| b.is_ascii_alphabetic());
-        let number = !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit());
-        if head.contains('.') && (commit || number) {
-            main = head;
-            if number {
-                build = build.or(Some(tail));
-            }
-        }
-    }
-
-    let installed = version::clean(installed);
-    if build.is_none() && installed.split('.').count() >= 3 {
-        if let Some(extra) = main
-            .strip_prefix(installed)
-            .and_then(|rest| rest.strip_prefix('.'))
-            .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-        {
-            main = &main[..installed.len()];
-            build = Some(extra);
-        }
-    }
-    (main, build)
-}
-
-/// Newer by version, or the same version with a newer build than the app's.
-/// Builds are compared only when both are plain numbers, since some apps put
-/// their version, not a build counter, in CFBundleVersion.
-fn cask_is_newer(remote: &str, build: Option<&str>, app: &InstalledApp) -> bool {
-    if version::is_newer(remote, &app.version) {
-        return true;
-    }
-    let numeric = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    version::compare(remote, &app.version) == std::cmp::Ordering::Equal
-        && match (build, app.build.as_deref()) {
-            (Some(new), Some(old)) if numeric(new) && numeric(old) => version::is_newer(new, old),
-            _ => false,
-        }
 }
 
 #[cfg(test)]

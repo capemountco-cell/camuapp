@@ -35,7 +35,7 @@ pub fn parse(json: &str, app: &InstalledApp) -> Result<Option<Finding>, String> 
     let text = |key: &str| result[key].as_str().map(str::to_string);
 
     let mut f = Finding::new(Source::AppStore, remote);
-    f.is_update = version::is_newer(remote, &app.version);
+    f.is_update = version::is_update(remote, None, &app.version, app.build.as_deref());
     f.release_notes = text("releaseNotes")
         .map(|n| notes::to_text(&n))
         .filter(|n| !n.is_empty());

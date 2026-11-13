@@ -113,7 +113,7 @@ pub fn finding(app: &InstalledApp, item: &Item) -> Option<Finding> {
     // updater would.
     let is_update = match (item.version.as_deref(), app.build.as_deref()) {
         (Some(remote), Some(local)) => version::is_newer(remote, local),
-        _ => version::is_newer(&display, &app.version),
+        _ => version::is_update(&display, None, &app.version, app.build.as_deref()),
     };
     let mut f = Finding::new(Source::Sparkle, display);
     f.build = item.version.clone();
