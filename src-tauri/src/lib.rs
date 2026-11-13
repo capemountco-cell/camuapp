@@ -734,6 +734,12 @@ fn set_settings(
     Ok(settings)
 }
 
+/// This Mac's chip, for the "Intel only" badge.
+#[tauri::command]
+fn host_arch() -> camu_core::arch::Arch {
+    camu_core::arch::Arch::host()
+}
+
 #[tauri::command]
 fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
@@ -1062,6 +1068,7 @@ pub fn run() {
             get_settings,
             set_settings,
             app_version,
+            host_arch,
             self_update_status,
             check_self_update,
             install_self_update,

@@ -3,7 +3,7 @@
  * so they are tested without a window.
  */
 
-import type { InstalledApp, Install, Phase, Report, Source } from "./native";
+import type { Arch, Hold, InstalledApp, Install, Notice, Phase, Report, Source } from "./native";
 
 export type Tab = "updates" | "current" | "other" | "ignored";
 
@@ -80,6 +80,7 @@ export interface Row {
 
 export function tabOf(row: Row, ignored: string[]): Tab {
   if (ignored.includes(row.app.bundleId)) return "ignored";
+  if (row.report?.notice?.kind === "setapp") return "other";
   switch (row.report?.status) {
     case "updateAvailable":
       return "updates";
@@ -140,6 +141,8 @@ export function installLabel(install: Install): string {
       return "The app's own updater";
     case "website":
       return "Developer's website";
+    case "vendor":
+      return install.name;
     case "none":
       return "—";
   }
@@ -150,29 +153,98 @@ export function isOneClick(install: Install): boolean {
   return install.kind === "homebrew" || install.kind === "download";
 }
 
-export type UpdateGroup = "updated" | "oneClick" | "appStore" | "manual";
+export type UpdateGroup = "updated" | "oneClick" | "appStore" | "manual" | "needsYou" | "held";
 
 export const updateGroupLabel: Record<UpdateGroup, string> = {
   updated: "Updated",
   oneClick: "Ready to install",
   appStore: "App Store",
   manual: "Finish in the app",
+  needsYou: "Needs you",
+  held: "Skipped",
 };
 
+/** An update that waits for the user: a major version (when they asked to
+ *  be asked), one that needs a newer macOS, or the developer's updater. */
+export function needsYou(report: Report | undefined, askMajor = true): boolean {
+  if (!report || report.status !== "updateAvailable" || report.hold) return false;
+  return Boolean(report.notice) || (askMajor && Boolean(report.major));
+}
+
 /** Group the Updates view: what Camu installs itself first. */
-export function updateGroups(rows: Row[], phases: Map<string, Phase>): [UpdateGroup, Row[]][] {
-  const groups: Record<UpdateGroup, Row[]> = { updated: [], oneClick: [], appStore: [], manual: [] };
+export function updateGroups(rows: Row[], phases: Map<string, Phase>, askMajor = true): [UpdateGroup, Row[]][] {
+  const groups: Record<UpdateGroup, Row[]> = { updated: [], oneClick: [], appStore: [], manual: [], needsYou: [], held: [] };
   for (const row of rows) {
     const phase = phases.get(row.app.path);
     const install = row.report?.install;
     if (phase?.phase === "done") groups.updated.push(row);
+    else if (row.report?.hold) groups.held.push(row);
+    else if (needsYou(row.report, askMajor)) groups.needsYou.push(row);
     else if (install && isOneClick(install)) groups.oneClick.push(row);
     else if (install?.kind === "appStore") groups.appStore.push(row);
     else groups.manual.push(row);
   }
-  return (["oneClick", "appStore", "manual", "updated"] as UpdateGroup[])
+  return (["oneClick", "appStore", "manual", "needsYou", "held", "updated"] as UpdateGroup[])
     .filter((g) => groups[g].length > 0)
     .map((g) => [g, groups[g]]);
+}
+
+/** Rows Update All installs: not held back, not waiting for the user. */
+export function updateAllRows(rows: Row[], askMajor = true): Row[] {
+  return rows.filter((r) => r.report?.status === "updateAvailable" && !r.report.hold && !needsYou(r.report, askMajor));
+}
+
+/** A short badge for a notice. */
+export function noticeLabel(notice: Notice): string {
+  switch (notice.kind) {
+    case "needsMacOs":
+      return `Needs macOS ${notice.version}`;
+    case "vendor":
+      return `Updates through ${notice.name}`;
+    case "setapp":
+      return "Managed by Setapp";
+  }
+}
+
+/** Why an update is held back, in a few words. */
+export function holdLabel(hold: Hold, nowMs = Date.now()): string {
+  switch (hold.kind) {
+    case "skipped":
+      return `${hold.version} skipped`;
+    case "snoozed": {
+      const days = Math.max(1, Math.ceil((hold.until * 1000 - nowMs) / 86_400_000));
+      return `Reminding you in ${days} day${days === 1 ? "" : "s"}`;
+    }
+    case "pinned":
+      return `Staying on ${hold.major}.x`;
+  }
+}
+
+/** Built for Intel only, on an Apple silicon Mac: runs through Rosetta. */
+export function intelOnly(app: InstalledApp, host: Arch | null): boolean {
+  return host === "arm64" && app.archs?.length === 1 && app.archs[0] === "x86_64";
+}
+
+/** When most checks failed, the list can't be trusted: probably offline. */
+export function checkTrouble(rows: Row[]): { failed: number; checked: number } | null {
+  const checked = rows.filter((r) => r.report).length;
+  const failed = rows.filter((r) => r.report?.status === "failed").length;
+  return checked > 0 && failed > 0 && failed / checked >= 0.5 ? { failed, checked } : null;
+}
+
+/** Plain text describing what Camu saw, for reporting a wrong version. */
+export function wrongVersionReport(row: Row, camuVersion: string | null): string {
+  const { app, report } = row;
+  const lines = [
+    `Camu ${camuVersion ?? "?"}: wrong version report`,
+    `App: ${app.name} (${app.bundleId})`,
+    `Installed: ${app.version}${app.build && app.build !== app.version ? ` (build ${app.build})` : ""}`,
+  ];
+  for (const f of report?.findings ?? []) {
+    lines.push(`${sourceLabel[f.source]}: ${f.version}${f.build ? ` (build ${f.build})` : ""}${f.isUpdate ? " — called an update" : ""}`);
+  }
+  for (const e of report?.errors ?? []) lines.push(`${sourceLabel[e.source]}: no answer (${e.message})`);
+  return lines.join("\n");
 }
 
 /** A phase that is still moving. */
@@ -243,6 +315,7 @@ export function fuzzy(text: string, query: string): number | null {
 /** What the "other" tab says about a row. */
 export function otherReason(row: Row): string {
   if (!row.report) return "Checking…";
+  if (row.report.notice?.kind === "setapp") return "Managed by Setapp";
   if (row.report.status === "failed") {
     const first = row.report.errors[0];
     return first ? `${sourceLabel[first.source]} didn't answer` : "Check failed";

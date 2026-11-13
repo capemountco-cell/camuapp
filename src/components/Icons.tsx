@@ -62,6 +62,26 @@ export const Close = (p: IconProps) => svg(<path d="m4.5 4.5 7 7M11.5 4.5l-7 7" 
 export const External = (p: IconProps) => svg(<path d="M6.5 3.5h-3v9h9v-3M9 3.5h3.5V7M12.5 3.5 7.5 8.5" {...stroke} />, p);
 export const Folder = (p: IconProps) => svg(<path d="M2.5 4.5v7.25c0 .41.34.75.75.75h9.5c.41 0 .75-.34.75-.75V6.25a.75.75 0 0 0-.75-.75H8L6.5 3.75H3.25a.75.75 0 0 0-.75.75Z" {...stroke} />, p);
 export const Undo = (p: IconProps) => svg(<path d="M5.5 3.5 2.75 6.25 5.5 9M3 6.25h6.25a3.5 3.5 0 0 1 0 7H7" {...stroke} />, p);
+export const History = (p: IconProps) =>
+  svg(<path d="M2.8 8a5.2 5.2 0 1 0 1.6-3.8M2.8 3v2.6h2.6M8 5.2V8l2 1.4" {...stroke} />, p);
+export const Flag = (p: IconProps) => svg(<path d="M3.5 13.5v-10h7l-1.25 2.5 1.25 2.5h-7" {...stroke} />, p);
+export const More = (p: IconProps) =>
+  svg(
+    <>
+      <circle cx="4" cy="8" r="1" fill="currentColor" />
+      <circle cx="8" cy="8" r="1" fill="currentColor" />
+      <circle cx="12" cy="8" r="1" fill="currentColor" />
+    </>,
+    p,
+  );
+export const Warning = (p: IconProps) =>
+  svg(
+    <>
+      <path d="M8 2.75 13.75 13H2.25L8 2.75Z" {...stroke} />
+      <path d="M8 6.75v2.5M8 11.1v.15" {...stroke} />
+    </>,
+    p,
+  );
 export const Gear = (p: IconProps) =>
   svg(
     <>

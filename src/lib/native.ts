@@ -22,7 +22,13 @@ export interface InstalledApp {
   fromAppStore: boolean;
   minimumOs: string | null;
   iconFile: string | null;
+  executable?: string | null;
+  /** The chips the app's binary runs on natively; empty if unreadable. */
+  archs?: Arch[];
+  setapp?: boolean;
 }
+
+export type Arch = "arm64" | "x86_64";
 
 export interface Finding {
   source: Source;
@@ -36,6 +42,7 @@ export interface Finding {
   minimumOs: string | null;
   date: string | null;
   cask: string | null;
+  signature?: string | null;
 }
 
 export type Install =
@@ -44,7 +51,20 @@ export type Install =
   | { kind: "download"; url: string }
   | { kind: "openApp" }
   | { kind: "website"; url: string }
+  | { kind: "vendor"; name: string; path: string }
   | { kind: "none" };
+
+/** Something to know before updating (mirrors camu_core::check::Notice). */
+export type Notice =
+  | { kind: "needsMacOs"; version: string }
+  | { kind: "vendor"; name: string }
+  | { kind: "setapp" };
+
+/** Why an update is held back by the user's choice. */
+export type Hold =
+  | { kind: "skipped"; version: string }
+  | { kind: "snoozed"; until: number }
+  | { kind: "pinned"; major: number };
 
 export interface Report {
   id: string;
@@ -55,6 +75,10 @@ export interface Report {
   errors: { source: Source; message: string }[];
   install: Install;
   homebrewCask: string | null;
+  /** The update moves to a new major version (5.x → 6.0). */
+  major?: boolean;
+  notice?: Notice | null;
+  hold?: Hold | null;
 }
 
 /** Where an update is up to (mirrors camu_core::update::Phase). */
@@ -75,6 +99,28 @@ export interface Backup {
   version: string;
   path: string;
   newest: boolean;
+  made?: number;
+}
+
+export interface BackupSummary {
+  totalBytes: number;
+  deletedAppsBytes: number;
+  count: number;
+  folder: string;
+}
+
+/** One line of update history (mirrors camu_core::history::Entry). */
+export interface HistoryEntry {
+  at: number;
+  id: string;
+  bundleId: string;
+  name: string;
+  from: string;
+  to: string | null;
+  source: string | null;
+  how: "automatic" | "manual";
+  outcome: "updated" | "failed" | "handedOff" | "rolledBack";
+  message: string | null;
 }
 
 /** True inside the Tauri window; false in a plain browser tab. */
@@ -120,6 +166,15 @@ export interface Settings {
   showInDock: boolean;
   ignored: string[];
   beta: string[];
+  skipped: Record<string, string>;
+  snoozed: Record<string, number>;
+  pinned: Record<string, number>;
+  autoSkipOpen: boolean;
+  autoNoPassword: boolean;
+  askMajor: boolean;
+  quietHours: { from: number; to: number } | null;
+  backupDays: number;
+  backupMaxGb: number;
 }
 
 export interface SelfUpdate {
@@ -156,6 +211,7 @@ export const getSettings = () => call<Settings>("get_settings");
 /** Resolves with the settings as stored, repaired if a combination made no sense. */
 export const setSettings = (settings: Settings) => call<Settings>("set_settings", { settings });
 export const appVersion = () => call<string>("app_version");
+export const hostArch = () => call<Arch>("host_arch");
 export const selfUpdateStatus = () => call<SelfUpdate | null>("self_update_status");
 export const checkSelfUpdate = () => call<SelfUpdate | null>("check_self_update");
 /** Installs and relaunches Camu; only resolves if it fails. */
@@ -179,7 +235,18 @@ export const events = {
   navigate: (h: (view: string) => void) => on("camu://navigate", h),
   /** The menu bar asked to show an app. */
   select: (h: (id: string) => void) => on("camu://select", h),
+  /** Something was added to the update history. */
+  historyChanged: (h: () => void) => on("camu://history-changed", h),
 };
+
+export type Choice = "skip" | "snooze" | "pin" | "clear";
+/** Skip this version, snooze for `days`, stay on this major version, or clear. */
+export const setChoice = (bundleId: string, choice: Choice, version?: string, days?: number) =>
+  call<Settings>("set_choice", { bundleId, choice, version: version ?? null, days: days ?? null });
+export const listHistory = () => call<HistoryEntry[]>("list_history");
+export const backupSummary = () => call<BackupSummary>("backup_summary");
+export const deleteBackups = (scope: "deleted" | "all") => call<number>("delete_backups", { scope });
+export const revealBackups = () => call<void>("reveal_backups");
 
 export const listBackups = () => call<Backup[]>("list_backups");
 

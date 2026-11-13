@@ -1382,3 +1382,196 @@ html.is-popover body {
 .list-wrap > .empty {
   flex: 1;
 }
+
+/* Badges, banners and choices (0.3) */
+
+.badge {
+  flex-shrink: 0;
+  max-width: 280px;
+  overflow: hidden;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--active);
+  color: var(--secondary);
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge.warn {
+  background: color-mix(in srgb, var(--s-update) 14%, transparent);
+  color: var(--s-update);
+}
+
+.badge.info {
+  background: color-mix(in srgb, var(--s-handoff) 14%, transparent);
+  color: var(--s-handoff);
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--raised);
+  font-size: 13px;
+}
+
+.banner-text {
+  flex: 1;
+}
+
+.update-row {
+  display: flex;
+  gap: 8px;
+}
+
+.update-row .btn.wide {
+  flex: 1;
+}
+
+.btn.icon-only {
+  width: 34px;
+  padding: 0;
+}
+
+.btn.danger {
+  border-color: color-mix(in srgb, var(--s-failed) 45%, transparent);
+  background: color-mix(in srgb, var(--s-failed) 12%, transparent);
+  color: var(--s-failed);
+}
+
+.menu-anchor {
+  position: relative;
+}
+
+.popmenu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 230px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--active);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 0.5);
+}
+
+.popmenu button {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.popmenu button:hover,
+.popmenu button:focus-visible {
+  background: var(--line-strong);
+}
+
+.popmenu hr {
+  height: 1px;
+  margin: 4px 6px;
+  border: 0;
+  background: var(--line-strong);
+}
+
+.held {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--active);
+  color: var(--secondary);
+  font-size: 13px;
+}
+
+.notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--active);
+  color: var(--secondary);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.notice.warn {
+  background: color-mix(in srgb, var(--s-update) 12%, transparent);
+  color: var(--s-update);
+}
+
+.setting-subs {
+  padding: 4px 0;
+  border: 1px solid var(--line);
+  border-top: 0;
+  background: var(--raised);
+}
+
+.setting.sub {
+  gap: 12px;
+  padding: 9px 16px 9px 22px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.setting.sub input[type="checkbox"] {
+  align-self: flex-start;
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.hours {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-row {
+  cursor: default;
+}
+
+.history-what {
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-what.danger {
+  color: var(--s-failed);
+}
+
+.history-time {
+  width: 72px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.history-spacer {
+  width: 76px;
+}
+
+.history .btn.small {
+  width: 76px;
+}
+
+/* Skipped, snoozed or pinned updates step back. */
+.row.held-row .vpill,
+.row.held-row > svg:first-child {
+  opacity: 0.45;
+  filter: grayscale(1);
+}

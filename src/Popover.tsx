@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AppIcon } from "./components/AppIcon";
 import { CheckCircle, Gear, Refresh, Wordmark } from "./components/Icons";
-import { isBusy, phaseLabel } from "./lib/model";
+import { isBusy, needsYou, phaseLabel } from "./lib/model";
 import {
   checkUpdates,
   events,
@@ -34,11 +34,18 @@ function ago(secs: number | null): string {
 export function Popover() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [ignored, setIgnored] = useState<string[]>([]);
+  const [askMajor, setAskMajor] = useState(true);
   const [phases, setPhases] = useState<Map<string, Phase>>(new Map());
 
   const refresh = useCallback(() => {
     snapshot().then(setSnap, () => {});
-    getSettings().then((s) => setIgnored(s.ignored), () => {});
+    getSettings().then(
+      (s) => {
+        setIgnored(s.ignored);
+        setAskMajor(s.askMajor);
+      },
+      () => {},
+    );
   }, []);
 
   useEffect(() => {
@@ -60,12 +67,17 @@ export function Popover() {
   }, [refresh]);
 
   const pending: Report[] = (snap?.reports ?? []).filter(
-    (r) => r.status === "updateAvailable" && !ignored.includes(r.app.bundleId),
+    (r) => r.status === "updateAvailable" && !r.hold && !ignored.includes(r.app.bundleId),
   );
+  // Update All leaves what needs the user (major versions, newer macOS,
+  // the developer's own updater) for the main window.
   const waiting = pending.filter((r) => {
     const p = phases.get(r.id);
-    return p?.phase !== "done" && !isBusy(p);
+    return p?.phase !== "done" && !isBusy(p) && !needsYou(r, askMajor);
   });
+  const reports = snap?.reports ?? [];
+  const failed = reports.filter((r) => r.status === "failed").length;
+  const offline = !snap?.checking && reports.length > 0 && failed / reports.length >= 0.5;
   const busy = snap?.updating || [...phases.values()].some(isBusy);
   const update = (ids: string[]) => void updateApps(ids).catch(() => {});
 
@@ -93,7 +105,13 @@ export function Popover() {
         {snap === null ? null : pending.length === 0 ? (
           <div className="pop-empty">
             <CheckCircle className="i pop-empty-icon" />
-            <p>{snap.checking ? "Checking for updates…" : "Every app is up to date"}</p>
+            <p>
+              {snap.checking
+                ? "Checking for updates…"
+                : offline
+                  ? `Couldn't check ${failed} of ${reports.length} apps. You may be offline.`
+                  : "Every app is up to date"}
+            </p>
           </div>
         ) : (
           <ul className="pop-list">
@@ -112,7 +130,11 @@ export function Popover() {
                       </span>
                     )}
                   </div>
-                  {!phase || phase.phase === "failed" ? (
+                  {needsYou(r, askMajor) ? (
+                    <button type="button" className="btn small" onClick={() => void showMain("updates")}>
+                      Review
+                    </button>
+                  ) : !phase || phase.phase === "failed" ? (
                     <button type="button" className="btn small" disabled={busy} onClick={() => update([r.id])}>
                       {r.install.kind === "appStore" ? "App Store" : "Update"}
                     </button>
