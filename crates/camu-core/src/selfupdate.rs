@@ -74,7 +74,7 @@ pub fn check(
     let ours = found
         .download_url
         .as_deref()
-        .is_some_and(|u| u.starts_with(&releases_prefix()));
+        .is_some_and(is_own_release_download);
     let sha256 = if ours {
         published_sha256(
             fetch,
@@ -96,9 +96,14 @@ pub fn check(
     }))
 }
 
-/// Where this repository's release downloads live.
-fn releases_prefix() -> String {
-    format!("https://github.com/{OWNER}/{REPO}/releases/download/")
+/// True for a release download from Camu's GitHub account
+/// (`https://github.com/<OWNER>/<any repo>/releases/download/...`). The repo
+/// name isn't pinned: GitHub's API follows a renamed repository, and its
+/// downloads then come back under the new name.
+fn is_own_release_download(url: &str) -> bool {
+    url.strip_prefix(&format!("https://github.com/{OWNER}/"))
+        .and_then(|rest| rest.split_once('/'))
+        .is_some_and(|(repo, path)| !repo.is_empty() && path.starts_with("releases/download/"))
 }
 
 /// Fetch the `<download>.sha256` asset of the release, if it has one.
@@ -194,6 +199,23 @@ mod tests {
         let found = check(&fetch, "0.1.0", None).unwrap().unwrap();
         assert_eq!(found.sha256, None);
         assert!(!found.can_install);
+    }
+
+    #[test]
+    fn trusts_downloads_from_its_own_account_even_after_a_rename() {
+        assert!(is_own_release_download(DMG));
+        assert!(is_own_release_download(
+            "https://github.com/capemountco-cell/camu-renamed/releases/download/v1/Camu.dmg"
+        ));
+        assert!(!is_own_release_download(
+            "https://github.com/someone-else/camuapp/releases/download/v1/Camu.dmg"
+        ));
+        assert!(!is_own_release_download(
+            "https://github.com/capemountco-cell/camuapp/archive/main.zip"
+        ));
+        assert!(!is_own_release_download(
+            "https://github.com.evil.example/capemountco-cell/camuapp/releases/download/v1/Camu.dmg"
+        ));
     }
 
     #[test]
