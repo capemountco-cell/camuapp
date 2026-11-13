@@ -133,6 +133,9 @@ pub struct State {
     pub auto_failed: BTreeMap<String, String>,
     /// camu.cc has been told this copy of Camu was installed (see `feedback`).
     pub install_counted: bool,
+    /// The Camu version that last opened, to tell camu.cc when an update
+    /// finished (see `feedback::launch_event`).
+    pub last_version: Option<String>,
 }
 
 /// Set `report.hold` from the user's choices: a skipped version, a snooze
