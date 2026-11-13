@@ -17,7 +17,7 @@ known ways. These are the complaints, and Camu's answer to each one.
 | Cluttered, verbose UI with information stacked on itself | One row per app: name, installed → available, one action. Details only when opened |
 | Needs exclusions and beta channels | Ignore per app; opt into beta channels per app |
 | Menu bar or dock, auto-update if wanted | Both modes; scheduled checks; auto-update is on by default, for one-click updates only, each backed up first |
-| Subscriptions, tracking, accounts | None. No analytics, no registration, no ads |
+| Subscriptions, tracking, accounts | None. No registration, no ads, nothing that identifies anyone. Camu tells camu.cc once that it was installed (only its version), and sends a wrong-version report when the user asks |
 
 ## Order of work
 

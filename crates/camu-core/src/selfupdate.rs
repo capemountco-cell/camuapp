@@ -20,8 +20,9 @@ use crate::InstalledApp;
 pub const OWNER: &str = "capemountco-cell";
 pub const REPO: &str = "camuapp";
 /// Where people download Camu by hand: the website, which always serves the
-/// newest build. Shown when Camu can't install an update itself.
-pub const DOWNLOAD_PAGE: &str = "https://camu.cc/download";
+/// newest build. Tagged so camu.cc counts it as from the app. Shown when Camu
+/// can't install an update itself.
+pub const DOWNLOAD_PAGE: &str = "https://camu.cc/download?from=app";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

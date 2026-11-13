@@ -21,7 +21,7 @@ interface Props {
   onRollBack: () => void;
   /** Skip this version, remind later, stay on this major, or clear. */
   onChoice: (choice: Choice) => void;
-  /** Copy a report of what Camu saw, for a wrong version. */
+  /** Send camu.cc a report of what Camu saw, for a wrong version. */
   onReport: () => void;
 }
 
@@ -214,7 +214,7 @@ export function DetailPanel(props: Props) {
           )}
           {report && (report.findings.length > 0 || report.errors.length > 0) && (
             <button type="button" className="menu-item" onClick={props.onReport}>
-              <Flag /> Version looks wrong? Copy a report
+              <Flag /> Version looks wrong? Report it
             </button>
           )}
         </section>

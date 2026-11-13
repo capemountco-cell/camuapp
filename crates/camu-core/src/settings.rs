@@ -131,6 +131,8 @@ pub struct State {
     /// Automatic installs that failed: bundle id → version. Not retried
     /// automatically, and not notified about again.
     pub auto_failed: BTreeMap<String, String>,
+    /// camu.cc has been told this copy of Camu was installed (see `feedback`).
+    pub install_counted: bool,
 }
 
 /// Set `report.hold` from the user's choices: a skipped version, a snooze

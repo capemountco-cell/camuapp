@@ -257,5 +257,17 @@ export const appIcon = (path: string, iconFile: string) =>
   call<string | null>("app_icon", { path, iconFile });
 
 export const openUrl = (url: string) => call<void>("open_url", { url });
+
+/** A wrong-version report, sent to camu.cc only when the user asks. */
+export interface WrongVersion {
+  app: string;
+  bundleId: string;
+  installed: string;
+  found: string;
+  source: string;
+  url: string;
+  note: string;
+}
+export const sendReport = (report: WrongVersion) => call<void>("send_report", { report });
 export const openApp = (path: string) => call<void>("open_app", { path });
 export const revealApp = (path: string) => call<void>("reveal_app", { path });

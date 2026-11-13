@@ -16,6 +16,7 @@ import {
   updateAllRows,
   checkTrouble,
   holdLabel,
+  wrongVersionPayload,
   type Row,
 } from "./model";
 import type { Phase } from "./native";
@@ -197,5 +198,34 @@ describe("needs-you, holds and Update All", () => {
     expect(holdLabel({ kind: "skipped", version: "6.0" })).toBe("6.0 skipped");
     expect(holdLabel({ kind: "pinned", major: 5 })).toBe("Staying on 5.x");
     expect(holdLabel({ kind: "snoozed", until: 86_400 * 3 }, 0)).toBe("Reminding you in 3 days");
+  });
+});
+
+describe("wrong-version report", () => {
+  it("sends what the user has and what Camu found", () => {
+    const a = { ...app("Parallels Desktop", "com.parallels.desktop.console"), version: "26.1.1", build: "57288" };
+    const found = {
+      source: "homebrew" as const,
+      version: "26.1.1",
+      build: "57289",
+      isUpdate: true,
+      releaseNotes: null,
+      releaseNotesUrl: null,
+      downloadUrl: "https://download.parallels.com/x.dmg",
+      pageUrl: null,
+      minimumOs: null,
+      date: null,
+      cask: "parallels",
+    };
+    const r = { ...report(a, "updateAvailable"), best: found, findings: [found] };
+    expect(wrongVersionPayload({ app: a, report: r })).toEqual({
+      app: "Parallels Desktop",
+      bundleId: "com.parallels.desktop.console",
+      installed: "26.1.1 (build 57288)",
+      found: "26.1.1 (build 57289)",
+      source: "homebrew",
+      url: "https://download.parallels.com/x.dmg",
+      note: "Homebrew: 26.1.1 (build 57289) — called an update",
+    });
   });
 });
