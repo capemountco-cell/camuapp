@@ -16,8 +16,11 @@ pub fn parse(yml: &str, base: &str, app: &InstalledApp) -> Option<Finding> {
     let pairs = flat_yaml(yml);
     let get = |key: &str| pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
     let remote = get("version")?;
-    let mut f = Finding::new(Source::Electron, version::clean(&remote));
-    f.is_update = version::is_newer(&remote, &app.version);
+    let mut f = Finding::new(
+        Source::Electron,
+        version::split_release(&remote, &app.version).0,
+    );
+    f.is_update = version::is_update(&remote, None, &app.version, app.build.as_deref());
     f.date = get("releaseDate");
     f.release_notes = get("releaseNotes");
     f.download_url = get("path").map(|path| {

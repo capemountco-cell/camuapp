@@ -21,7 +21,7 @@ use crate::version;
 
 pub const INDEX_URL: &str = "https://formulae.brew.sh/api/cask.json";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Cask {
     pub token: String,
     pub version: String,
@@ -181,12 +181,13 @@ pub fn brew_path() -> Option<PathBuf> {
 
 pub fn finding(app: &InstalledApp, cask: &Cask) -> Option<Finding> {
     // "latest" casks have no version to compare.
-    let remote = version::clean(&cask.version);
+    let (remote, build) = version::split_release(&cask.version, &app.version);
     if !remote.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
     let mut f = Finding::new(Source::Homebrew, remote);
-    f.is_update = version::is_newer(remote, &app.version);
+    f.build = build.map(str::to_string);
+    f.is_update = version::is_update(&cask.version, None, &app.version, app.build.as_deref());
     f.page_url = cask.homepage.clone();
     f.download_url = cask.url.clone();
     f.cask = Some(cask.token.clone());
@@ -272,5 +273,92 @@ mod tests {
 
         let nightly = app("Nightly", "1.0");
         assert!(finding(&nightly, index.find(&nightly, &HashSet::new()).unwrap()).is_none());
+    }
+
+    fn cask(token: &str, version: &str) -> Cask {
+        Cask {
+            token: token.into(),
+            version: version.into(),
+            ..Default::default()
+        }
+    }
+
+    fn with_build(mut a: InstalledApp, build: &str) -> InstalledApp {
+        a.build = Some(build.into());
+        a
+    }
+
+    /// Versions as Homebrew and the apps' own Info.plist really report them.
+    #[test]
+    fn homebrew_build_suffixes_are_not_false_updates() {
+        // Parallels Desktop: 27.1.0 (58756) against "27.1.0-58756".
+        let parallels = with_build(app("Parallels Desktop", "27.1.0"), "58756");
+        let f = finding(&parallels, &cask("parallels", "27.1.0-58756")).unwrap();
+        assert_eq!(f.version, "27.1.0");
+        assert!(!f.is_update);
+        let older = with_build(app("Parallels Desktop", "27.1.0"), "58700");
+        assert!(
+            finding(&older, &cask("parallels", "27.1.0-58756"))
+                .unwrap()
+                .is_update
+        );
+        let old = with_build(app("Parallels Desktop", "26.2.1"), "57300");
+        assert!(
+            finding(&old, &cask("parallels", "27.1.0-58756"))
+                .unwrap()
+                .is_update
+        );
+
+        // MEGAsync: 6.7.0 with no build number against "6.7.0.3".
+        let mega = app("MEGAsync", "6.7.0");
+        let f = finding(&mega, &cask("megasync", "6.7.0.3")).unwrap();
+        assert_eq!(f.version, "6.7.0");
+        assert!(!f.is_update);
+        assert!(
+            finding(&app("MEGAsync", "6.6.2"), &cask("megasync", "6.7.0.3"))
+                .unwrap()
+                .is_update
+        );
+
+        // GitHub Desktop: 3.6.11 (3.6.11) against "3.6.11-0102f49a".
+        let gh = with_build(app("GitHub Desktop", "3.6.11"), "3.6.11");
+        let f = finding(&gh, &cask("github", "3.6.11-0102f49a")).unwrap();
+        assert_eq!(f.version, "3.6.11");
+        assert!(!f.is_update);
+        let gh_old = with_build(app("GitHub Desktop", "3.6.10"), "3.6.10");
+        assert!(
+            finding(&gh_old, &cask("github", "3.6.11-0102f49a"))
+                .unwrap()
+                .is_update
+        );
+    }
+
+    #[test]
+    fn real_point_releases_still_count() {
+        // A two-part version gaining a patch number is a real update.
+        assert!(
+            finding(&app("Rocket", "1.2"), &cask("rocket", "1.2.1"))
+                .unwrap()
+                .is_update
+        );
+        // A comma build newer than the app's build is an update.
+        let rocket = with_build(app("Rocket", "2.5.0"), "520");
+        assert!(
+            finding(&rocket, &cask("rocket", "2.5.0,530"))
+                .unwrap()
+                .is_update
+        );
+        let same = with_build(app("Rocket", "2.5.0"), "530");
+        assert!(
+            !finding(&same, &cask("rocket", "2.5.0,530"))
+                .unwrap()
+                .is_update
+        );
+        // A dash that is part of the version itself stays.
+        assert!(
+            finding(&app("Tool", "1.0.0-beta.1"), &cask("tool", "1.0.0"))
+                .unwrap()
+                .is_update
+        );
     }
 }

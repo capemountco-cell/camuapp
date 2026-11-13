@@ -72,8 +72,8 @@ pub fn parse(json: &str, app: &InstalledApp, source: Source) -> Result<Option<Fi
     let Some(remote) = release["tag_name"].as_str().and_then(version_from_tag) else {
         return Ok(None);
     };
-    let mut f = Finding::new(source, version::clean(remote));
-    f.is_update = version::is_newer(remote, &app.version);
+    let mut f = Finding::new(source, version::split_release(remote, &app.version).0);
+    f.is_update = version::is_update(remote, None, &app.version, app.build.as_deref());
     f.release_notes = release["body"]
         .as_str()
         .map(|b| b.trim().to_string())
