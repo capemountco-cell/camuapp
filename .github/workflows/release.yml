@@ -94,15 +94,19 @@ jobs:
         run: |
           dmg="$(ls release/*.dmg)"
           shasum -a 256 "$dmg" > "$dmg.sha256"
+          # The same file under a name that never changes, so
+          # https://github.com/<owner>/<repo>/releases/latest/download/Camu.dmg
+          # always downloads the newest release (for the website's button).
+          cp "$dmg" release/Camu.dmg
           # --target makes GitHub create the tag on this commit when it
           # doesn't exist yet (the Run workflow path).
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" --target "$GITHUB_SHA" --title "Camu ${TAG#v}" --generate-notes
-          gh release upload "$TAG" "$dmg" "$dmg.sha256" --clobber
+          gh release upload "$TAG" "$dmg" "$dmg.sha256" release/Camu.dmg --clobber
 
       - name: Upload the .dmg
         uses: actions/upload-artifact@v4
         with:
           name: dmg-universal
-          path: release/*.dmg
+          path: release/Camu-*.dmg
           if-no-files-found: error

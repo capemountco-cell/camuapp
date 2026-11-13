@@ -35,8 +35,10 @@ Done: 1, 2, 3 and 4.
    panel (pending apps, an Update button each, Update All, refresh, settings);
    background checks on a schedule; one notification per new version;
    automatic installs (one-click updates only, on by default, each backed up first);
-   Camu updating itself in place when signed with a Developer ID, or showing
-   the release to download when it isn't.
+   Camu updating itself in place (with automatic installs on, by itself). A
+   Developer ID build needs a download signed by the same team; an ad-hoc
+   build needs a download from Camu's own releases that matches the SHA-256
+   published beside it.
 
 ## Safety rules for installing
 

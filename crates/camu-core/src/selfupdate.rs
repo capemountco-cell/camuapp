@@ -1,9 +1,11 @@
 //! Camu keeping itself up to date, from this repository's GitHub releases.
 //!
-//! Camu holds itself to the same rule as every other app: a download replaces
-//! the running copy only when both are signed by the same Apple developer
-//! team. An ad-hoc signed build has no team, so it can't prove a download is
-//! genuine; it shows the release and lets the user download it instead.
+//! A Developer ID signed Camu holds itself to the same rule as every other
+//! app: a download replaces it only when both are signed by the same Apple
+//! team. An ad-hoc signed Camu has no team, so instead it installs only a
+//! download from this repository's own releases whose SHA-256 matches the
+//! `.sha256` file published beside it. That is the same trust as downloading
+//! the release by hand from GitHub.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -26,6 +28,8 @@ pub struct SelfUpdate {
     pub notes: Option<String>,
     pub page_url: Option<String>,
     pub download_url: Option<String>,
+    /// The download's SHA-256, from the `.sha256` file published with it.
+    pub sha256: Option<String>,
     /// Camu can verify and install this itself.
     pub can_install: bool,
 }
@@ -64,15 +68,48 @@ pub fn check(
     if !found.is_update {
         return Ok(None);
     }
+    let ours = found
+        .download_url
+        .as_deref()
+        .is_some_and(|u| u.starts_with(&releases_prefix()));
+    let sha256 = if ours {
+        published_sha256(
+            fetch,
+            &body,
+            found.download_url.as_deref().unwrap_or_default(),
+        )
+    } else {
+        None
+    };
     let signed = bundle.is_some_and(|b| macos::team_id(b).is_some());
     Ok(Some(SelfUpdate {
         current: current.to_string(),
-        can_install: signed && found.download_url.is_some(),
+        can_install: ours && (signed || sha256.is_some()),
+        sha256,
         version: found.version,
         notes: found.release_notes,
         page_url: found.release_notes_url,
         download_url: found.download_url,
     }))
+}
+
+/// Where this repository's release downloads live.
+fn releases_prefix() -> String {
+    format!("https://github.com/{OWNER}/{REPO}/releases/download/")
+}
+
+/// Fetch the `<download>.sha256` asset of the release, if it has one.
+fn published_sha256(fetch: &dyn Fetch, release_json: &str, download: &str) -> Option<String> {
+    let release: serde_json::Value = serde_json::from_str(release_json).ok()?;
+    let want = format!("{download}.sha256");
+    let listed = release["assets"]
+        .as_array()?
+        .iter()
+        .any(|a| a["browser_download_url"].as_str() == Some(want.as_str()));
+    if !listed {
+        return None;
+    }
+    crate::update::parse_sha256(&fetch.get(&want).ok()?)
 }
 
 /// A script that waits for Camu (`pid`) to quit, swaps in the new bundle,
@@ -120,17 +157,39 @@ mod tests {
     use super::*;
     use crate::fetch::fake::FakeFetch;
 
+    const DMG: &str =
+        "https://github.com/capemountco-cell/camuapp/releases/download/v0.2.0/Camu-0.2.0-universal.dmg";
     const RELEASE: &str = r#"{"tag_name":"v0.2.0","body":"Menu bar mode","html_url":"https://github.com/capemountco-cell/camuapp/releases/tag/v0.2.0",
-      "assets":[{"browser_download_url":"https://github.com/capemountco-cell/camuapp/releases/download/v0.2.0/Camu-0.2.0-universal.dmg"}]}"#;
+      "assets":[{"browser_download_url":"https://github.com/capemountco-cell/camuapp/releases/download/v0.2.0/Camu.dmg"},
+                {"browser_download_url":"https://github.com/capemountco-cell/camuapp/releases/download/v0.2.0/Camu-0.2.0-universal.dmg"},
+                {"browser_download_url":"https://github.com/capemountco-cell/camuapp/releases/download/v0.2.0/Camu-0.2.0-universal.dmg.sha256"}]}"#;
 
     #[test]
-    fn finds_a_newer_release_but_wont_self_install_unsigned() {
-        let fetch = FakeFetch::default().with(&github::latest_url(OWNER, REPO), RELEASE);
+    fn unsigned_camu_self_installs_only_with_a_published_checksum() {
+        let hash = "0f".repeat(32);
+        let fetch = FakeFetch::default()
+            .with(&github::latest_url(OWNER, REPO), RELEASE)
+            .with(
+                &format!("{DMG}.sha256"),
+                &format!("{hash}  release/Camu-0.2.0-universal.dmg\n"),
+            );
         let found = check(&fetch, "0.1.0", None).unwrap().unwrap();
         assert_eq!(found.version, "0.2.0");
-        assert!(found.download_url.unwrap().ends_with(".dmg"));
-        assert!(!found.can_install, "no signed bundle, no in-place install");
+        assert_eq!(found.download_url.as_deref(), Some(DMG));
+        assert_eq!(found.sha256.as_deref(), Some(hash.as_str()));
+        assert!(found.can_install);
         assert_eq!(check(&fetch, "0.2.0", None).unwrap(), None);
+
+        // No checksum published: show the release instead.
+        let bare = RELEASE.replace(
+            &format!(",\n                {{\"browser_download_url\":\"{DMG}.sha256\"}}"),
+            "",
+        );
+        assert!(!bare.contains(".sha256"));
+        let fetch = FakeFetch::default().with(&github::latest_url(OWNER, REPO), &bare);
+        let found = check(&fetch, "0.1.0", None).unwrap().unwrap();
+        assert_eq!(found.sha256, None);
+        assert!(!found.can_install);
     }
 
     #[test]

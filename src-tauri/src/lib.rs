@@ -423,9 +423,57 @@ fn scheduler(app: AppHandle, inner: Shared) {
         if now.saturating_sub(last_self_check) >= 24 * 3600 {
             last_self_check = now;
             check_self(&app, &inner);
+            // With automatic installs on, Camu updates itself too, between
+            // update runs. It relaunches on the new version.
+            let idle =
+                !inner.checking.load(Ordering::SeqCst) && !inner.updating.load(Ordering::SeqCst);
+            let ready = inner
+                .self_update
+                .lock()
+                .unwrap()
+                .clone()
+                .filter(|f| f.can_install);
+            if let Some(found) = ready.filter(|_| idle && inner.settings().auto_update) {
+                if install_self(&inner).is_ok() {
+                    if settings.notify {
+                        let _ = app
+                            .notification()
+                            .builder()
+                            .title("Camu")
+                            .body(format!("Updating Camu to {}.", found.version))
+                            .show();
+                    }
+                    app.exit(0);
+                }
+            }
         }
         std::thread::sleep(Duration::from_secs(60));
     }
+}
+
+/// Verify the waiting Camu update and hand over to the script that swaps it
+/// in once Camu quits. The caller must quit Camu right after.
+fn install_self(inner: &Inner) -> Result<(), String> {
+    let found = inner
+        .self_update
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("Camu is up to date")?;
+    if !found.can_install {
+        return Err(
+            "Camu can't verify this update itself. Download it from the release page.".into(),
+        );
+    }
+    let url = found
+        .download_url
+        .clone()
+        .ok_or("the release has no download")?;
+    let bundle = selfupdate::own_bundle().ok_or("Camu isn't running from an app bundle")?;
+    let updater = inner.updater.as_ref().ok_or(NO_HOME)?;
+    let me = InstalledApp::read(&bundle).ok_or("Camu can't read its own bundle")?;
+    let new = updater.prepare(&me, &url, &found.version, found.sha256.as_deref())?;
+    selfupdate::hand_over(&new, &bundle)
 }
 
 fn check_self(app: &AppHandle, inner: &Inner) {
@@ -541,35 +589,11 @@ async fn check_self_update(
     .await
 }
 
-/// Download, verify and install a new Camu, then relaunch. Only for signed
-/// builds; unsigned ones get the release page instead.
+/// Download, verify and install a new Camu, then relaunch.
 #[tauri::command]
 async fn install_self_update(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> {
     let inner = state.inner().clone();
-    let found = inner
-        .self_update
-        .lock()
-        .unwrap()
-        .clone()
-        .ok_or("Camu is up to date")?;
-    if !found.can_install {
-        return Err(
-            "This copy of Camu isn't signed, so it can't verify the update. Download it instead."
-                .into(),
-        );
-    }
-    let url = found
-        .download_url
-        .clone()
-        .ok_or("the release has no download")?;
-    let bundle = selfupdate::own_bundle().ok_or("Camu isn't running from an app bundle")?;
-    blocking(move || {
-        let updater = inner.updater.as_ref().ok_or(NO_HOME)?;
-        let me = InstalledApp::read(&bundle).ok_or("Camu can't read its own bundle")?;
-        let new = updater.prepare(&me, &url, &found.version)?;
-        selfupdate::hand_over(&new, &bundle)
-    })
-    .await??;
+    blocking(move || install_self(&inner)).await??;
     app.exit(0);
     Ok(())
 }
