@@ -21,7 +21,8 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use crate::app::InstalledApp;
-use crate::fetch::Fetch;
+use crate::arch::Arch;
+use crate::fetch::{CachingFetch, Fetch};
 use crate::sources::homebrew::{self, CaskIndex};
 use crate::sources::{appstore, electron, github, sparkle, Finding, Source};
 use crate::version;
@@ -59,7 +60,46 @@ pub enum Install {
     Website {
         url: String,
     },
+    /// The developer's own updater handles it (Adobe Creative Cloud,
+    /// Microsoft AutoUpdate): open that.
+    Vendor {
+        name: String,
+        path: std::path::PathBuf,
+    },
     None,
+}
+
+/// Something the user should know about an app before updating it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Notice {
+    /// The new version needs a newer macOS than this Mac runs.
+    NeedsMacOs { version: String },
+    /// Updated through the developer's own updater.
+    Vendor { name: String },
+    /// Setapp keeps it up to date; Camu leaves it alone.
+    Setapp,
+}
+
+/// Why an available update is being held back, by the user's choice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Hold {
+    /// "Skip this version", or rolled back from it.
+    Skipped { version: String },
+    /// "Remind me later", until this time (seconds since 1970).
+    Snoozed { until: u64 },
+    /// "Stay on version N.x".
+    Pinned { major: u64 },
+}
+
+/// Per-app choices that change what a check looks for.
+#[derive(Debug, Clone, Default)]
+pub struct Prefs {
+    /// Accept pre-release channels.
+    pub include_beta: bool,
+    /// "Stay on version N.x".
+    pub max_major: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -83,6 +123,11 @@ pub struct Report {
     pub install: Install,
     /// The cask this app was installed from, if it came from Homebrew.
     pub homebrew_cask: Option<String>,
+    /// The update moves to a new major version.
+    pub major: bool,
+    pub notice: Option<Notice>,
+    /// Set by the user's choices (see `settings::apply_choices`).
+    pub hold: Option<Hold>,
 }
 
 /// Facts about this Mac that checks depend on.
@@ -94,6 +139,8 @@ pub struct Environment {
     pub storefronts: Vec<String>,
     /// Casks installed with Homebrew.
     pub installed_casks: HashSet<String>,
+    /// This Mac's chip: downloads are chosen for it.
+    pub arch: Arch,
 }
 
 /// The Homebrew catalogue is ~15 MB. Download it at most this often.
@@ -113,17 +160,19 @@ pub struct Checker {
 impl Checker {
     pub fn new(fetch: Box<dyn Fetch>, env: Environment) -> Self {
         Self {
-            fetch,
+            // GitHub allows 60 unauthenticated requests an hour and the App
+            // Store throttles bursts: their answers are kept for an hour.
+            fetch: Box::new(CachingFetch::new(fetch, Duration::from_secs(60 * 60))),
             env: Mutex::new(Arc::new(env)),
             casks: Mutex::new(None),
         }
     }
 
-    /// Start a fresh round of checks: take new facts about the Mac (a cask
-    /// may have been installed since) and forget the cached catalogue.
+    /// Start a fresh round of checks with new facts about the Mac (a cask
+    /// may have been installed since). The catalogue stays cached for its
+    /// hour: re-downloading 15 MB on every check gains nothing.
     pub fn refresh(&self, env: Environment) {
         *self.env.lock().unwrap() = Arc::new(env);
-        *self.casks.lock().unwrap() = None;
     }
 
     fn cask_index(&self) -> Result<Arc<CaskIndex>, String> {
@@ -147,7 +196,24 @@ impl Checker {
 
     /// Check one app. `include_beta` opts into pre-release channels.
     pub fn check(&self, app: &InstalledApp, include_beta: bool) -> Report {
+        self.check_with(
+            app,
+            &Prefs {
+                include_beta,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Check one app with the user's choices for it.
+    pub fn check_with(&self, app: &InstalledApp, prefs: &Prefs) -> Report {
         let env = self.env.lock().unwrap().clone();
+        if app.setapp {
+            let mut report = decide(app, vec![], vec![], None);
+            report.notice = Some(Notice::Setapp);
+            return report;
+        }
+        let include_beta = prefs.include_beta;
         let mut findings = Vec::new();
         let mut errors = Vec::new();
         fn record(
@@ -182,6 +248,7 @@ impl Checker {
                 let filter = sparkle::Filter {
                     os_version: env.os_version.as_deref(),
                     include_beta,
+                    max_major: prefs.max_major,
                 };
                 let result = self
                     .fetch
@@ -213,7 +280,10 @@ impl Checker {
                 if env.installed_casks.contains(&cask.token) {
                     homebrew_cask = Some(cask.token.clone());
                 }
-                note!(Source::Homebrew, Ok(homebrew::finding(app, cask)));
+                note!(
+                    Source::Homebrew,
+                    Ok(homebrew::finding_for(app, cask, env.arch))
+                );
             }
 
             // GitHub corrects a lagging Homebrew catalogue. Only ask it when
@@ -231,13 +301,29 @@ impl Checker {
                 if let Some((owner, repo)) = repo {
                     note!(
                         Source::Github,
-                        github::check(app, &owner, &repo, self.fetch.as_ref())
+                        github::check(app, &owner, &repo, self.fetch.as_ref(), env.arch)
                     );
                 }
             }
         }
 
-        decide(app, findings, errors, homebrew_cask)
+        let mut report = decide(app, findings, errors, homebrew_cask);
+        if report.status == Status::UpdateAvailable {
+            let needs = report.best.as_ref().and_then(|b| b.minimum_os.clone());
+            if let (Some(needed), Some(running)) = (needs, env.os_version.as_deref()) {
+                if version::compare(&needed, running) == std::cmp::Ordering::Greater {
+                    report.notice = Some(Notice::NeedsMacOs { version: needed });
+                    report.install = Install::None;
+                }
+            }
+            if report.notice.is_none() && !app.from_app_store {
+                if let Some((name, path)) = vendor_updater(app) {
+                    report.notice = Some(Notice::Vendor { name: name.clone() });
+                    report.install = Install::Vendor { name, path };
+                }
+            }
+        }
+        report
     }
 
     /// Check many apps at once, `workers` at a time, calling `on_report` as
@@ -245,7 +331,7 @@ impl Checker {
     pub fn check_all(
         &self,
         apps: &[InstalledApp],
-        include_beta: &HashSet<String>,
+        prefs: &(dyn Fn(&InstalledApp) -> Prefs + Sync),
         workers: usize,
         on_report: &(dyn Fn(Report) + Sync),
     ) {
@@ -257,7 +343,7 @@ impl Checker {
                 scope.spawn(|| loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(app) = apps.get(i) else { break };
-                    on_report(self.check(app, include_beta.contains(&app.bundle_id)));
+                    on_report(self.check_with(app, &prefs(app)));
                 });
             }
         });
@@ -310,9 +396,31 @@ pub fn decide(
             .map(|url| Install::AppStore { url })
             .unwrap_or(Install::None),
         None => Install::None,
-        Some(_) if homebrew_cask.is_some() => Install::Homebrew {
-            cask: homebrew_cask.clone().unwrap(),
-        },
+        // `brew upgrade` only helps when Homebrew already has the version the
+        // best source found; otherwise it does nothing, every time.
+        Some(f)
+            if homebrew_cask.is_some()
+                && findings.iter().any(|h| {
+                    h.source == Source::Homebrew
+                        && version::compare(&h.version, &f.version) != std::cmp::Ordering::Less
+                }) =>
+        {
+            Install::Homebrew {
+                cask: homebrew_cask.clone().unwrap(),
+            }
+        }
+        // A Sparkle feed over plain http can be tampered with on the way, so
+        // its download is only trusted with the developer's signature.
+        Some(f)
+            if f.source == Source::Sparkle
+                && app
+                    .sparkle_feed
+                    .as_deref()
+                    .is_some_and(|u| u.starts_with("http://"))
+                && (f.signature.is_none() || app.sparkle_key.is_none()) =>
+        {
+            Install::OpenApp
+        }
         Some(f) => match (&f.download_url, f.source) {
             (Some(url), Source::Sparkle | Source::Electron | Source::Github) => {
                 Install::Download { url: url.clone() }
@@ -327,6 +435,10 @@ pub fn decide(
         },
     };
 
+    let major = status == Status::UpdateAvailable
+        && best
+            .as_ref()
+            .is_some_and(|b| version::is_major_jump(&b.version, &app.version));
     Report {
         id: app.id(),
         app: app.clone(),
@@ -334,9 +446,37 @@ pub fn decide(
         best,
         findings,
         errors,
+        major,
         install,
         homebrew_cask,
+        notice: None,
+        hold: None,
     }
+}
+
+/// The developer's own updater for an app, when it has one installed:
+/// (its name, where it is).
+pub fn vendor_updater(app: &InstalledApp) -> Option<(String, std::path::PathBuf)> {
+    let id = app.bundle_id.as_str();
+    let (name, paths): (&str, &[&str]) =
+        if id.starts_with("com.adobe.") && !id.starts_with("com.adobe.acc") {
+            (
+                "Adobe Creative Cloud",
+                &["/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"],
+            )
+        } else if id.starts_with("com.microsoft.") && !app.from_app_store {
+            (
+                "Microsoft AutoUpdate",
+                &["/Library/Application Support/Microsoft/MAU2.0/Microsoft AutoUpdate.app"],
+            )
+        } else {
+            return None;
+        };
+    paths
+        .iter()
+        .map(std::path::PathBuf::from)
+        .find(|p| p.exists())
+        .map(|p| (name.to_string(), p))
 }
 
 #[cfg(test)]
@@ -357,6 +497,7 @@ mod tests {
             from_app_store: false,
             minimum_os: None,
             icon_file: None,
+            ..Default::default()
         }
     }
 
@@ -377,6 +518,7 @@ mod tests {
                 os_version: Some("15.1".into()),
                 storefronts: vec!["us".into()],
                 installed_casks: installed.iter().map(|s| s.to_string()).collect(),
+                arch: Arch::Arm64,
             },
         )
     }
@@ -417,11 +559,13 @@ mod tests {
             (best.source, best.version.as_str()),
             (Source::Github, "1.2.0")
         );
-        // Installed with brew, so brew upgrades it.
+        // Installed with brew, but brew doesn't have 1.2.0 yet: `brew
+        // upgrade` would do nothing, so the release is downloaded instead.
         assert_eq!(
             report.install,
-            Install::Homebrew {
-                cask: "comet".into()
+            Install::Download {
+                url: "https://github.com/acme/comet/releases/download/v1.2.0/Comet-1.2.0.dmg"
+                    .into()
             }
         );
     }
@@ -482,7 +626,7 @@ mod tests {
         let fetch = FakeFetch::default().with(homebrew::INDEX_URL, "[]");
         let c = checker(fetch, &[]);
         let seen = Mutex::new(Vec::new());
-        c.check_all(&apps, &HashSet::new(), 4, &|r| {
+        c.check_all(&apps, &|_| Prefs::default(), 4, &|r| {
             seen.lock().unwrap().push(r.id)
         });
         assert_eq!(seen.lock().unwrap().len(), 20);

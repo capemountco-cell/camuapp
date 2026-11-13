@@ -25,9 +25,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use serde::Serialize;
 
 use crate::app::InstalledApp;
+use crate::arch::{self, Arch};
 use crate::check::{Install, Report, Status};
 use crate::fetch::HttpFetch;
-use crate::sources::homebrew;
+use crate::sources::{homebrew, Source};
 use crate::{launch, macos, version};
 
 /// One app to update.
@@ -37,6 +38,10 @@ pub struct Job {
     pub app: InstalledApp,
     pub install: Install,
     pub target_version: String,
+    /// Where the new version was found.
+    pub source: Option<Source>,
+    /// Sparkle's EdDSA signature for the download, when the feed has one.
+    pub signature: Option<String>,
 }
 
 impl Job {
@@ -45,11 +50,14 @@ impl Job {
         if report.status != Status::UpdateAvailable {
             return None;
         }
+        let best = report.best.as_ref()?;
         Some(Job {
             id: report.id.clone(),
             app: report.app.clone(),
             install: report.install.clone(),
-            target_version: report.best.as_ref()?.version.clone(),
+            target_version: best.version.clone(),
+            source: Some(best.source),
+            signature: best.signature.clone(),
         })
     }
 }
@@ -125,15 +133,28 @@ enum Payload {
 pub struct Updater {
     http: HttpFetch,
     dirs: Dirs,
+    /// The running macOS, e.g. "15.1"; `None` skips the check.
+    os_version: Option<String>,
 }
 
 impl Updater {
     pub fn new(http: HttpFetch, dirs: Dirs) -> Self {
-        Self { http, dirs }
+        Self {
+            http,
+            dirs,
+            os_version: crate::platform::os_version(),
+        }
     }
 
     /// Update every job, reporting progress through `emit`.
     pub fn run(&self, jobs: Vec<Job>, emit: &(dyn Fn(Event) + Sync)) {
+        self.run_with(jobs, emit, true)
+    }
+
+    /// `run`; `interactive` false (scheduled automatic installs) never asks
+    /// for a password: those updates fail with a note to install them from
+    /// Camu instead.
+    pub fn run_with(&self, jobs: Vec<Job>, emit: &(dyn Fn(Event) + Sync), interactive: bool) {
         let send = |id: &str, phase: Phase| {
             emit(Event {
                 id: id.to_string(),
@@ -158,6 +179,24 @@ impl Updater {
                 );
             }
             return;
+        }
+
+        // Downloads, unpacked copies and backups all need room.
+        if let Some(free) = macos::free_bytes(&self.dirs.staging) {
+            if free < MIN_FREE && !plan.downloads.is_empty() {
+                let gb = free as f64 / 1e9;
+                for job in &plan.downloads {
+                    send(
+                        &job.id,
+                        Phase::Failed {
+                            message: format!(
+                                "Only {gb:.1} GB free on this disk. Free up some space, then try again."
+                            ),
+                        },
+                    );
+                }
+                return;
+            }
         }
 
         // 2. Stage downloads, three at a time.
@@ -222,8 +261,8 @@ impl Updater {
         let brew_jobs: Vec<Job> = plan.homebrew.iter().filter(|j| ready(j)).cloned().collect();
 
         // 5. Commit.
-        self.commit(&staged, &send);
-        self.upgrade_casks(&brew_jobs, &send);
+        self.commit(&staged, &send, interactive);
+        self.upgrade_casks(&brew_jobs, &send, interactive);
 
         // 6. Reopen what was running.
         for path in reopen {
@@ -255,6 +294,9 @@ impl Updater {
                 }
                 Install::OpenApp => {
                     launch::open_app(&job.app.path).map(|_| "Opened — finish in the app")
+                }
+                Install::Vendor { path, .. } => {
+                    launch::open_app(path).map(|_| "Opened its updater — finish there")
                 }
                 _ => Err("Camu doesn't know how to update this app".to_string()),
             };
@@ -318,6 +360,13 @@ impl Updater {
             }
             None => false,
         };
+        if job.source == Some(Source::Sparkle) {
+            check_sparkle_signature(
+                &file,
+                job.app.sparkle_key.as_deref(),
+                job.signature.as_deref(),
+            )?;
+        }
         let payload = unpack(&file, &unpacked, &job.app.bundle_id)?;
         let old_team = macos::team_id(&job.app.path);
         match &payload {
@@ -342,6 +391,7 @@ impl Updater {
                         fresh.version, job.app.version
                     ));
                 }
+                runs_here(&fresh, self.os_version.as_deref(), Arch::host())?;
                 macos::verify_signature(new)?;
                 self_trust(
                     old_team.as_deref(),
@@ -389,7 +439,7 @@ impl Updater {
             .map(|_| dest.clone())
     }
 
-    fn commit(&self, staged: &[Staged], send: &dyn Fn(&str, Phase)) {
+    fn commit(&self, staged: &[Staged], send: &dyn Fn(&str, Phase), interactive: bool) {
         if staged.is_empty() {
             return;
         }
@@ -399,6 +449,17 @@ impl Updater {
 
         for (group, as_admin) in [(user, false), (admin, true)] {
             if group.is_empty() {
+                continue;
+            }
+            if as_admin && !interactive {
+                for (_, s) in &group {
+                    send(
+                        &s.job.id,
+                        Phase::Failed {
+                            message: "Needs your password. Update it from Camu.".into(),
+                        },
+                    );
+                }
                 continue;
             }
             let items: Vec<ScriptItem> = group
@@ -461,7 +522,7 @@ impl Updater {
         }
     }
 
-    fn upgrade_casks(&self, jobs: &[Job], send: &dyn Fn(&str, Phase)) {
+    fn upgrade_casks(&self, jobs: &[Job], send: &dyn Fn(&str, Phase), interactive: bool) {
         if jobs.is_empty() {
             return;
         }
@@ -488,7 +549,16 @@ impl Updater {
             .collect();
 
         let askpass = self.dirs.staging.join("askpass.sh");
-        let _ = fs::write(&askpass, ASKPASS);
+        // Unattended runs answer Homebrew's password question with "no", so
+        // a cask that needs administrator rights fails instead of asking.
+        let _ = fs::write(
+            &askpass,
+            if interactive {
+                ASKPASS
+            } else {
+                "#!/bin/sh\nexit 1\n"
+            },
+        );
         let _ = macos::run("/bin/chmod", &["700", &askpass.to_string_lossy()]);
 
         let output = std::process::Command::new(&brew)
@@ -500,6 +570,9 @@ impl Updater {
             )
             .env("SUDO_ASKPASS", &askpass)
             .env("HOMEBREW_NO_ENV_HINTS", "1")
+            // Camu already knows what to upgrade; refreshing all of Homebrew
+            // first can take minutes.
+            .env("HOMEBREW_NO_AUTO_UPDATE", "1")
             .env("HOMEBREW_NO_COLOR", "1")
             .stdin(std::process::Stdio::null())
             .output();
@@ -554,10 +627,13 @@ impl Updater {
                 url: url.to_string(),
             },
             target_version: target_version.to_string(),
+            source: None,
+            signature: None,
         };
         let dir = self.dirs.staging.with_file_name("self-update");
         let _ = fs::remove_dir_all(&dir);
         let scoped = Updater {
+            os_version: self.os_version.clone(),
             http: HttpFetch::new(),
             dirs: Dirs {
                 staging: dir,
@@ -604,6 +680,64 @@ impl Updater {
             None => Err("the restore didn't report back".into()),
         }
     }
+}
+
+/// Refuse a new app this Mac can't run: built for the other chip only, or
+/// needing a newer macOS. Installing it would leave an app that won't open.
+pub fn runs_here(app: &InstalledApp, os_version: Option<&str>, host: Arch) -> Result<(), String> {
+    if !arch::runs_on(&app.archs, host) {
+        let other = if host == Arch::Arm64 {
+            Arch::X86_64
+        } else {
+            Arch::Arm64
+        };
+        return Err(format!("this download only runs on {} Macs", other.label()));
+    }
+    if let (Some(needed), Some(running)) = (app.minimum_os.as_deref(), os_version) {
+        if version::compare(needed, running) == std::cmp::Ordering::Greater {
+            return Err(format!(
+                "version {} needs macOS {needed} or later",
+                app.version
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Check a Sparkle download against the app's own EdDSA key, as Sparkle
+/// itself would. An app with a key accepts only signed updates.
+pub fn check_sparkle_signature(
+    file: &Path,
+    public_key: Option<&str>,
+    signature: Option<&str>,
+) -> Result<(), String> {
+    let Some(key) = public_key else {
+        return Ok(());
+    };
+    let signature = signature.ok_or("the update isn't signed by its developer")?;
+    let bytes = fs::read(file).map_err(|e| e.to_string())?;
+    verify_ed25519(key, signature, &bytes)
+}
+
+fn verify_ed25519(key: &str, signature: &str, message: &[u8]) -> Result<(), String> {
+    use base64::Engine;
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let bad = || "the app's update signature key is unreadable".to_string();
+    let key: [u8; 32] = b64
+        .decode(key.trim())
+        .ok()
+        .and_then(|k| k.try_into().ok())
+        .ok_or_else(bad)?;
+    let sig: [u8; 64] = b64
+        .decode(signature.trim())
+        .ok()
+        .and_then(|s| s.try_into().ok())
+        .ok_or("the update's signature is unreadable")?;
+    VerifyingKey::from_bytes(&key)
+        .map_err(|_| bad())?
+        .verify(message, &Signature::from_bytes(&sig))
+        .map_err(|_| "the download doesn't match its developer's signature".to_string())
 }
 
 /// Read the app back from disk and report what is installed now.
@@ -654,7 +788,9 @@ fn partition(jobs: Vec<Job>) -> Plan {
             Install::AppStore { .. } => plan.app_store.push(job),
             Install::Homebrew { .. } => plan.homebrew.push(job),
             Install::Download { .. } => plan.downloads.push(job),
-            Install::OpenApp | Install::Website { .. } | Install::None => plan.manual.push(job),
+            Install::OpenApp | Install::Website { .. } | Install::Vendor { .. } | Install::None => {
+                plan.manual.push(job)
+            }
         }
     }
     plan
@@ -702,8 +838,27 @@ pub fn parse_sha256(text: &str) -> Option<String> {
         .then(|| first.to_ascii_lowercase())
 }
 
+/// Free space wanted before downloading anything.
+const MIN_FREE: u64 = 2_000_000_000;
+
+/// Would installing this update ask for an administrator password? True for
+/// installer packages and apps this user can't replace.
+pub fn needs_password(report: &Report) -> bool {
+    match &report.install {
+        Install::Download { url } => {
+            url.split(['?', '#'])
+                .next()
+                .unwrap_or(url)
+                .ends_with(".pkg")
+                || needs_admin(&report.app.path)
+        }
+        Install::Homebrew { .. } => needs_admin(&report.app.path),
+        _ => false,
+    }
+}
+
 /// True when the current user can't move the app themselves.
-fn needs_admin(app: &Path) -> bool {
+pub fn needs_admin(app: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     let mine = std::env::var_os("HOME")
         .and_then(|h| fs::metadata(h).ok())
@@ -939,6 +1094,8 @@ pub struct Backup {
     pub path: PathBuf,
     /// The most recent backup of this app.
     pub newest: bool,
+    /// When the backup was made, in seconds since 1970.
+    pub made: u64,
 }
 
 pub fn list_backups(root: &Path) -> Vec<Backup> {
@@ -963,6 +1120,10 @@ pub fn list_backups(root: &Path) -> Vec<Backup> {
                         version: v.file_name().to_string_lossy().into_owned(),
                         path: app,
                         newest: false,
+                        made: modified
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0),
                     },
                 ))
             })
@@ -993,6 +1154,7 @@ mod tests {
             from_app_store: false,
             minimum_os: None,
             icon_file: None,
+            ..Default::default()
         }
     }
 
@@ -1002,7 +1164,57 @@ mod tests {
             app: app(name),
             install,
             target_version: "2.0".into(),
+            source: None,
+            signature: None,
         }
+    }
+
+    #[test]
+    fn refuses_apps_for_the_other_chip_or_a_newer_macos() {
+        let mut a = app("Rocket");
+        a.archs = vec![Arch::Arm64];
+        assert!(runs_here(&a, None, Arch::X86_64)
+            .unwrap_err()
+            .contains("Apple silicon"));
+        assert!(runs_here(&a, None, Arch::Arm64).is_ok());
+        a.archs = vec![Arch::X86_64];
+        assert!(
+            runs_here(&a, None, Arch::Arm64).is_ok(),
+            "Rosetta runs Intel apps"
+        );
+        a.minimum_os = Some("15.0".into());
+        assert!(runs_here(&a, Some("14.6"), Arch::Arm64)
+            .unwrap_err()
+            .contains("macOS 15.0"));
+        assert!(runs_here(&a, Some("15.1"), Arch::Arm64).is_ok());
+    }
+
+    #[test]
+    fn sparkle_signatures() {
+        use base64::Engine;
+        use ed25519_dalek::{Signer, SigningKey};
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let signing = SigningKey::from_bytes(&[7u8; 32]);
+        let key = b64.encode(signing.verifying_key().to_bytes());
+        let data = b"the app archive";
+        let sig = b64.encode(signing.sign(data).to_bytes());
+        assert!(verify_ed25519(&key, &sig, data).is_ok());
+        assert!(verify_ed25519(&key, &sig, b"tampered").is_err());
+
+        let dir = std::env::temp_dir().join(format!("camu-sig-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.zip");
+        fs::write(&file, data).unwrap();
+        assert!(
+            check_sparkle_signature(&file, None, None).is_ok(),
+            "no key: nothing to check"
+        );
+        assert!(
+            check_sparkle_signature(&file, Some(&key), None).is_err(),
+            "key but unsigned"
+        );
+        assert!(check_sparkle_signature(&file, Some(&key), Some(&sig)).is_ok());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -57,6 +57,9 @@ pub struct Finding {
     pub date: Option<String>,
     /// Set for Homebrew findings: the cask's token, e.g. "visual-studio-code".
     pub cask: Option<String>,
+    /// Sparkle's `edSignature` for the download, checked against the app's
+    /// SUPublicEDKey before installing.
+    pub signature: Option<String>,
 }
 
 impl Finding {
@@ -73,6 +76,7 @@ impl Finding {
             minimum_os: None,
             date: None,
             cask: None,
+            signature: None,
         }
     }
 }

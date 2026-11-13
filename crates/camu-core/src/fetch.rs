@@ -10,6 +10,48 @@ pub trait Fetch: Send + Sync {
     fn get(&self, url: &str) -> Result<String, String>;
 }
 
+/// Keeps successful answers from rate-limited services (GitHub's API, the
+/// App Store's lookup) for `ttl`, so repeated checks don't exhaust their
+/// limits. Everything else passes straight through.
+pub struct CachingFetch {
+    inner: Box<dyn Fetch>,
+    ttl: Duration,
+    cache: std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, String)>>,
+}
+
+impl CachingFetch {
+    pub fn new(inner: Box<dyn Fetch>, ttl: Duration) -> Self {
+        Self {
+            inner,
+            ttl,
+            cache: Default::default(),
+        }
+    }
+
+    fn cacheable(url: &str) -> bool {
+        url.starts_with("https://api.github.com/") || url.starts_with("https://itunes.apple.com/")
+    }
+}
+
+impl Fetch for CachingFetch {
+    fn get(&self, url: &str) -> Result<String, String> {
+        if !Self::cacheable(url) {
+            return self.inner.get(url);
+        }
+        if let Some((at, body)) = self.cache.lock().unwrap().get(url) {
+            if at.elapsed() < self.ttl {
+                return Ok(body.clone());
+            }
+        }
+        let body = self.inner.get(url)?;
+        self.cache
+            .lock()
+            .unwrap()
+            .insert(url.to_string(), (std::time::Instant::now(), body.clone()));
+        Ok(body)
+    }
+}
+
 /// The real thing, over HTTPS.
 pub struct HttpFetch {
     /// For feeds and API calls: small replies, so a whole request gets 20s.
@@ -355,6 +397,42 @@ mod download_tests {
             err.contains("stalled") || err.contains("closed early"),
             "{err}"
         );
+    }
+}
+
+#[cfg(test)]
+mod caching_tests {
+    use super::fake::FakeFetch;
+    use super::*;
+
+    #[test]
+    fn rate_limited_services_are_asked_once_an_hour() {
+        let fake = FakeFetch::default()
+            .with("https://api.github.com/", "{}")
+            .with("https://example.com/", "<rss/>");
+        let fetch = CachingFetch::new(Box::new(fake), Duration::from_secs(3600));
+        for _ in 0..3 {
+            fetch
+                .get("https://api.github.com/repos/a/b/releases/latest")
+                .unwrap();
+            fetch.get("https://example.com/appcast.xml").unwrap();
+        }
+        // Can't see inside the box, so count through a second wrapper.
+        let counted = FakeFetch::default().with("https://api.github.com/", "{}");
+        let asked = std::sync::Arc::new(counted);
+        struct Shared(std::sync::Arc<FakeFetch>);
+        impl Fetch for Shared {
+            fn get(&self, url: &str) -> Result<String, String> {
+                self.0.get(url)
+            }
+        }
+        let fetch = CachingFetch::new(Box::new(Shared(asked.clone())), Duration::from_secs(3600));
+        for _ in 0..3 {
+            fetch
+                .get("https://api.github.com/repos/a/b/releases/latest")
+                .unwrap();
+        }
+        assert_eq!(asked.asked.lock().unwrap().len(), 1);
     }
 }
 

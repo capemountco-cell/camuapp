@@ -30,6 +30,46 @@ pub struct Settings {
     pub ignored: Vec<String>,
     /// Bundle ids that follow beta channels.
     pub beta: Vec<String>,
+    /// "Skip this version": bundle id → the version skipped.
+    pub skipped: BTreeMap<String, String>,
+    /// "Remind me later": bundle id → seconds since 1970 to hide it until.
+    pub snoozed: BTreeMap<String, u64>,
+    /// "Stay on version N.x": bundle id → N.
+    pub pinned: BTreeMap<String, u64>,
+    /// Automatic installs leave apps that are open alone.
+    pub auto_skip_open: bool,
+    /// Automatic installs never ask for an administrator password.
+    pub auto_no_password: bool,
+    /// Major versions (5.x → 6.0) wait for the user, even in Update All.
+    pub ask_major: bool,
+    /// Automatic installs only run in this window of local hours.
+    pub quiet_hours: Option<QuietHours>,
+    /// Backups older than this many days are removed (the newest of each
+    /// app included). 0 keeps them forever.
+    pub backup_days: u32,
+    /// Backups never use more than this many GB; the oldest go first.
+    /// 0 means no limit.
+    pub backup_max_gb: u32,
+}
+
+/// A window of local hours, e.g. 22 → 7 for overnight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuietHours {
+    pub from: u8,
+    pub to: u8,
+}
+
+impl QuietHours {
+    /// Is `hour` (0–23) inside the window? The window may wrap past midnight.
+    pub fn contains(&self, hour: u8) -> bool {
+        let (from, to) = (self.from % 24, self.to % 24);
+        match from.cmp(&to) {
+            std::cmp::Ordering::Less => (from..to).contains(&hour),
+            std::cmp::Ordering::Greater => hour >= from || hour < to,
+            std::cmp::Ordering::Equal => true,
+        }
+    }
 }
 
 impl Default for Settings {
@@ -42,6 +82,15 @@ impl Default for Settings {
             show_in_dock: true,
             ignored: Vec::new(),
             beta: Vec::new(),
+            skipped: BTreeMap::new(),
+            snoozed: BTreeMap::new(),
+            pinned: BTreeMap::new(),
+            auto_skip_open: true,
+            auto_no_password: true,
+            ask_major: true,
+            quiet_hours: None,
+            backup_days: 30,
+            backup_max_gb: 10,
         }
     }
 }
@@ -59,6 +108,10 @@ impl Settings {
         self.ignored.dedup();
         self.beta.sort();
         self.beta.dedup();
+        if let Some(q) = &mut self.quiet_hours {
+            q.from %= 24;
+            q.to %= 24;
+        }
         self
     }
 }
@@ -71,6 +124,61 @@ pub struct State {
     pub last_check: Option<u64>,
     /// The newest version already notified about, per bundle id.
     pub notified: BTreeMap<String, String>,
+    /// Seconds since 1970 of the last check for a new Camu.
+    pub last_self_check: Option<u64>,
+    /// A Camu version that failed to install itself; not retried by itself.
+    pub self_install_failed: Option<String>,
+    /// Automatic installs that failed: bundle id → version. Not retried
+    /// automatically, and not notified about again.
+    pub auto_failed: BTreeMap<String, String>,
+}
+
+/// Set `report.hold` from the user's choices: a skipped version, a snooze
+/// that hasn't run out, or a pinned major version the update goes past.
+pub fn apply_choices(report: &mut Report, settings: &Settings, now: u64) {
+    use crate::check::Hold;
+    report.hold = None;
+    if report.status != Status::UpdateAvailable {
+        return;
+    }
+    let Some(best) = &report.best else { return };
+    let id = &report.app.bundle_id;
+    if settings.skipped.get(id) == Some(&best.version) {
+        report.hold = Some(Hold::Skipped {
+            version: best.version.clone(),
+        });
+    } else if let Some(&until) = settings.snoozed.get(id).filter(|&&u| u > now) {
+        report.hold = Some(Hold::Snoozed { until });
+    } else if let Some(&max) = settings.pinned.get(id) {
+        if crate::version::major(&best.version).is_some_and(|m| m > max) {
+            report.hold = Some(Hold::Pinned { major: max });
+        }
+    }
+}
+
+/// Facts about one app at the moment an automatic install would start.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AutoFacts {
+    pub running: bool,
+    pub needs_password: bool,
+    pub failed_before: bool,
+}
+
+/// May a scheduled run install this update without asking?
+pub fn auto_installable(report: &Report, settings: &Settings, facts: AutoFacts) -> bool {
+    use crate::check::Install;
+    report.status == Status::UpdateAvailable
+        && report.hold.is_none()
+        && report.notice.is_none()
+        && !settings.ignored.contains(&report.app.bundle_id)
+        && matches!(
+            report.install,
+            Install::Homebrew { .. } | Install::Download { .. }
+        )
+        && !(settings.ask_major && report.major)
+        && !(settings.auto_skip_open && facts.running)
+        && !(settings.auto_no_password && facts.needs_password)
+        && !facts.failed_before
 }
 
 pub fn support_dir() -> Option<PathBuf> {
@@ -139,6 +247,7 @@ pub fn fresh_updates<'a>(
     let mut fresh = Vec::new();
     for report in reports {
         if report.status != Status::UpdateAvailable
+            || report.hold.is_some()
             || settings.ignored.contains(&report.app.bundle_id)
         {
             continue;
@@ -191,6 +300,7 @@ mod tests {
             from_app_store: false,
             minimum_os: None,
             icon_file: None,
+            ..Default::default()
         };
         let mut f = Finding::new(Source::Homebrew, latest);
         f.is_update = crate::version::is_newer(latest, version);
@@ -292,5 +402,97 @@ mod tests {
             "3 updates available"
         );
         assert_eq!(notification_text(&[]), None);
+    }
+
+    #[test]
+    fn quiet_hours_wrap_past_midnight() {
+        let night = QuietHours { from: 22, to: 7 };
+        assert!(night.contains(23) && night.contains(3) && !night.contains(12));
+        let day = QuietHours { from: 9, to: 17 };
+        assert!(day.contains(9) && !day.contains(17));
+    }
+
+    #[test]
+    fn choices_hold_updates_back() {
+        let mut s = Settings::default();
+        let mut r = report("Rocket", "3.6", "3.7");
+        s.skipped.insert(r.app.bundle_id.clone(), "3.7".into());
+        apply_choices(&mut r, &s, 100);
+        assert!(matches!(r.hold, Some(crate::check::Hold::Skipped { .. })));
+
+        // A newer version than the skipped one shows again.
+        let mut newer = report("Rocket", "3.6", "3.8");
+        apply_choices(&mut newer, &s, 100);
+        assert_eq!(newer.hold, None);
+
+        let mut s = Settings::default();
+        s.snoozed.insert(r.app.bundle_id.clone(), 200);
+        apply_choices(&mut r, &s, 100);
+        assert!(matches!(
+            r.hold,
+            Some(crate::check::Hold::Snoozed { until: 200 })
+        ));
+        apply_choices(&mut r, &s, 300);
+        assert_eq!(r.hold, None, "a snooze runs out");
+
+        let mut s = Settings::default();
+        let mut major = report("Rocket", "3.6", "4.0");
+        s.pinned.insert(major.app.bundle_id.clone(), 3);
+        apply_choices(&mut major, &s, 0);
+        assert!(matches!(
+            major.hold,
+            Some(crate::check::Hold::Pinned { major: 3 })
+        ));
+    }
+
+    #[test]
+    fn automatic_installs_are_careful() {
+        let s = Settings::default();
+        let mut r = report("Rocket", "3.6", "3.7");
+        r.install = crate::check::Install::Download {
+            url: "https://x/r.zip".into(),
+        };
+        assert!(auto_installable(&r, &s, AutoFacts::default()));
+        assert!(!auto_installable(
+            &r,
+            &s,
+            AutoFacts {
+                running: true,
+                ..Default::default()
+            }
+        ));
+        assert!(!auto_installable(
+            &r,
+            &s,
+            AutoFacts {
+                needs_password: true,
+                ..Default::default()
+            }
+        ));
+        assert!(!auto_installable(
+            &r,
+            &s,
+            AutoFacts {
+                failed_before: true,
+                ..Default::default()
+            }
+        ));
+        let mut major = report("Rocket", "3.6", "4.0");
+        major.install = r.install.clone();
+        assert!(major.major);
+        assert!(!auto_installable(&major, &s, AutoFacts::default()));
+        let relaxed = Settings {
+            ask_major: false,
+            auto_skip_open: false,
+            ..Settings::default()
+        };
+        assert!(auto_installable(
+            &major,
+            &relaxed,
+            AutoFacts {
+                running: true,
+                ..Default::default()
+            }
+        ));
     }
 }

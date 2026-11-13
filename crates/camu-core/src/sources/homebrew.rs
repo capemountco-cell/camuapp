@@ -17,6 +17,7 @@ use serde_json::Value;
 
 use super::{Finding, Source};
 use crate::app::InstalledApp;
+use crate::arch::Arch;
 use crate::version;
 
 pub const INDEX_URL: &str = "https://formulae.brew.sh/api/cask.json";
@@ -27,6 +28,9 @@ pub struct Cask {
     pub version: String,
     pub homepage: Option<String>,
     pub url: Option<String>,
+    /// The Intel download, when Homebrew lists a separate one. The top-level
+    /// `url` is the Apple silicon build for those casks.
+    pub url_intel: Option<String>,
     /// The cask says the app updates itself.
     pub auto_updates: bool,
     pub notes: Option<String>,
@@ -59,6 +63,7 @@ impl CaskIndex {
                 version: version.to_string(),
                 homepage: cask["homepage"].as_str().map(str::to_string),
                 url: cask["url"].as_str().map(str::to_string),
+                url_intel: intel_url(cask),
                 auto_updates: cask["auto_updates"].as_bool().unwrap_or(false),
                 notes: cask["desc"].as_str().map(str::to_string),
             };
@@ -179,7 +184,26 @@ pub fn brew_path() -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
+/// The download for Intel Macs from a cask's `variations` (keyed by macOS
+/// name, `arm64_` ones for Apple silicon), when it differs from `url`.
+fn intel_url(cask: &Value) -> Option<String> {
+    let default = cask["url"].as_str();
+    cask["variations"]
+        .as_object()?
+        .iter()
+        .filter(|(key, _)| !key.starts_with("arm64") && !key.contains("linux"))
+        .filter_map(|(_, v)| v["url"].as_str())
+        .find(|url| Some(*url) != default)
+        .map(str::to_string)
+}
+
+/// The cask's finding for an Apple silicon Mac.
 pub fn finding(app: &InstalledApp, cask: &Cask) -> Option<Finding> {
+    finding_for(app, cask, Arch::Arm64)
+}
+
+/// The cask's finding, with the download for this Mac's chip.
+pub fn finding_for(app: &InstalledApp, cask: &Cask, arch: Arch) -> Option<Finding> {
     // "latest" casks have no version to compare.
     let (remote, build) = version::split_release(&cask.version, &app.version);
     if !remote.starts_with(|c: char| c.is_ascii_digit()) {
@@ -189,7 +213,10 @@ pub fn finding(app: &InstalledApp, cask: &Cask) -> Option<Finding> {
     f.build = build.map(str::to_string);
     f.is_update = version::is_update(&cask.version, None, &app.version, app.build.as_deref());
     f.page_url = cask.homepage.clone();
-    f.download_url = cask.url.clone();
+    f.download_url = match arch {
+        Arch::X86_64 => cask.url_intel.clone().or_else(|| cask.url.clone()),
+        Arch::Arm64 => cask.url.clone(),
+    };
     f.cask = Some(cask.token.clone());
     Some(f)
 }
@@ -220,6 +247,7 @@ mod tests {
             from_app_store: false,
             minimum_os: None,
             icon_file: None,
+            ..Default::default()
         }
     }
 
@@ -260,6 +288,31 @@ mod tests {
             "renamer"
         );
         assert!(index.find(&app("Gone", "1.0"), &HashSet::new()).is_none());
+    }
+
+    #[test]
+    fn intel_macs_get_the_intel_download() {
+        let json = r#"[{"token":"onepw","version":"8.12","url":"https://x/1Password-aarch64.zip",
+          "artifacts":[{"app":["1Password.app"]}],
+          "variations":{"sequoia":{"url":"https://x/1Password-x86_64.zip"},
+                        "arm64_linux":{"url":"https://x/linux.tar"}}}]"#;
+        let index = CaskIndex::parse(json).unwrap();
+        let a = app("1Password", "8.11");
+        let cask = index.find(&a, &HashSet::new()).unwrap();
+        assert_eq!(
+            finding_for(&a, cask, Arch::X86_64)
+                .unwrap()
+                .download_url
+                .as_deref(),
+            Some("https://x/1Password-x86_64.zip")
+        );
+        assert_eq!(
+            finding_for(&a, cask, Arch::Arm64)
+                .unwrap()
+                .download_url
+                .as_deref(),
+            Some("https://x/1Password-aarch64.zip")
+        );
     }
 
     #[test]

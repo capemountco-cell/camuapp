@@ -22,6 +22,8 @@ pub struct Item {
     pub download_url: Option<String>,
     pub date: Option<String>,
     pub os: Option<String>,
+    /// `sparkle:edSignature` on the enclosure.
+    pub ed_signature: Option<String>,
 }
 
 impl Item {
@@ -73,6 +75,7 @@ pub fn parse(xml: &str) -> Result<Vec<Item>, String> {
                 download_url: from_enclosure("url"),
                 date: child_text(item, "pubDate"),
                 os: from_enclosure("os"),
+                ed_signature: from_enclosure("edSignature"),
             }
         })
         .collect();
@@ -87,6 +90,8 @@ pub struct Filter<'a> {
     pub os_version: Option<&'a str>,
     /// Accept items on a named channel (Sparkle's betas).
     pub include_beta: bool,
+    /// Only accept versions with this major number or lower ("stay on 3.x").
+    pub max_major: Option<u64>,
 }
 
 /// The newest item this Mac can install.
@@ -103,6 +108,15 @@ pub fn newest<'a>(items: &'a [Item], filter: &Filter) -> Option<&'a Item> {
             (Some(running), Some(needed)) => version::compare(needed, running) != Ordering::Greater,
             _ => true,
         })
+        .filter(|i| {
+            match (
+                filter.max_major,
+                i.display_version().and_then(version::major),
+            ) {
+                (Some(max), Some(m)) => m <= max,
+                _ => true,
+            }
+        })
         .max_by(|a, b| version::compare(a.sort_key().unwrap(), b.sort_key().unwrap()))
 }
 
@@ -117,6 +131,7 @@ pub fn finding(app: &InstalledApp, item: &Item) -> Option<Finding> {
     };
     let mut f = Finding::new(Source::Sparkle, display);
     f.build = item.version.clone();
+    f.signature = item.ed_signature.clone();
     f.is_update = is_update;
     f.release_notes = item
         .description
@@ -178,6 +193,7 @@ mod tests {
             from_app_store: false,
             minimum_os: None,
             icon_file: None,
+            ..Default::default()
         }
     }
 
@@ -200,6 +216,7 @@ mod tests {
         let filter = Filter {
             os_version: Some("15.1"),
             include_beta: false,
+            ..Default::default()
         };
         let item = newest(&items, &filter).unwrap();
         assert_eq!(item.short_version.as_deref(), Some("2.4.2"));
@@ -216,6 +233,7 @@ mod tests {
         let beta = Filter {
             os_version: Some("15.1"),
             include_beta: true,
+            ..Default::default()
         };
         assert_eq!(
             newest(&items, &beta).unwrap().version.as_deref(),
@@ -239,6 +257,7 @@ mod tests {
             &Filter {
                 os_version: Some("15.1"),
                 include_beta: false,
+                ..Default::default()
             },
         )
         .unwrap();

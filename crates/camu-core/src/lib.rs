@@ -5,8 +5,11 @@
 //! run on Linux in CI, without a window, a webview or a Mac.
 
 pub mod app;
+pub mod arch;
+pub mod backups;
 pub mod check;
 pub mod fetch;
+pub mod history;
 pub mod icon;
 pub mod launch;
 pub mod macos;

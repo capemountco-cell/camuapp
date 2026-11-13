@@ -45,6 +45,29 @@ pub fn own_bundle() -> Option<PathBuf> {
     (bundle.extension()? == "app").then(|| bundle.to_path_buf())
 }
 
+/// Why Camu can't replace itself where it is, if it can't: running from a
+/// disk image, from macOS's quarantine copy of a download, or from a folder
+/// this user can't write to. Trying anyway would quit and reopen the old copy
+/// in a loop.
+pub fn replace_blocker(bundle: &Path) -> Option<String> {
+    let path = bundle.to_string_lossy();
+    if path.contains("/AppTranslocation/") || path.starts_with("/Volumes/") {
+        return Some("Move Camu to your Applications folder to update it".into());
+    }
+    let parent = bundle.parent()?;
+    let probe = parent.join(format!(".camu-write-test-{}", std::process::id()));
+    match std::fs::write(&probe, b"") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            None
+        }
+        Err(_) => Some(format!(
+            "Camu can't write to {}. Download the new version from camu.cc",
+            parent.display()
+        )),
+    }
+}
+
 /// Ask GitHub for Camu's latest release. `Ok(None)` when up to date.
 pub fn check(
     fetch: &dyn Fetch,
@@ -63,6 +86,7 @@ pub fn check(
         from_app_store: false,
         minimum_os: None,
         icon_file: None,
+        ..Default::default()
     };
     let body = fetch.get(&github::latest_url(OWNER, REPO))?;
     let Some(found) = github::parse(&body, &me, Source::Github)? else {
@@ -216,6 +240,19 @@ mod tests {
         assert!(!is_own_release_download(
             "https://github.com.evil.example/capemountco-cell/camuapp/releases/download/v1/Camu.dmg"
         ));
+    }
+
+    #[test]
+    fn wont_replace_itself_from_a_disk_image_or_quarantine() {
+        assert!(replace_blocker(Path::new("/Volumes/Camu/Camu.app")).is_some());
+        assert!(replace_blocker(Path::new(
+            "/private/var/folders/x/AppTranslocation/ABC/d/Camu.app"
+        ))
+        .is_some());
+        let dir = std::env::temp_dir().join(format!("camu-rb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(replace_blocker(&dir.join("Camu.app")), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

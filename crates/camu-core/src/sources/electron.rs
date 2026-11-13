@@ -68,6 +68,7 @@ mod tests {
             from_app_store: false,
             minimum_os: None,
             icon_file: None,
+            ..Default::default()
         };
         let yml = "version: 1.5.0\nfiles:\n  - url: Rocket-1.5.0-mac.zip\n    sha512: abc\npath: Rocket-1.5.0-mac.zip\nsha512: abc\nreleaseDate: '2026-11-01T10:00:00.000Z'\n";
         let f = parse(yml, "https://dl.acme.com/mac/", &app).unwrap();

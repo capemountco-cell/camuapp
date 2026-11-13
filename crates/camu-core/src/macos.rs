@@ -162,9 +162,41 @@ pub fn detach_dmg(mount: &Path) {
     );
 }
 
+/// Free bytes on the volume holding `path` (or its nearest existing
+/// parent), from `df`.
+pub fn free_bytes(path: &Path) -> Option<u64> {
+    let mut at = path;
+    while !at.exists() {
+        at = at.parent()?;
+    }
+    let out = run_ok("/bin/df", &["-k", &at.to_string_lossy()]).ok()?;
+    parse_df(&out)
+}
+
+/// The "Available" column of `df -k` output, in bytes.
+pub fn parse_df(out: &str) -> Option<u64> {
+    let line = out.lines().nth(1)?;
+    let kb: u64 = line.split_whitespace().nth(3)?.parse().ok()?;
+    Some(kb * 1024)
+}
+
+/// Escape a string for an extended regular expression (pgrep's syntax).
+pub fn regex_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if "\\.^$|?*+()[]{}".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Is the app at `path` running? Looks for its executable in the process list.
 pub fn is_running(path: &Path) -> bool {
-    let pattern = format!("{}/Contents/MacOS/", path.to_string_lossy());
+    // pgrep reads the pattern as a regular expression: escape the path so
+    // names like "Foo (Beta)" or "C++ Tool" match literally.
+    let pattern = format!("^{}/Contents/MacOS/", regex_escape(&path.to_string_lossy()));
     run("/usr/bin/pgrep", &["-f", &pattern])
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -189,6 +221,22 @@ pub fn quit_app(path: &Path, bundle_id: &str, seconds: u64) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn reads_free_space_from_df() {
+        let out = "Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted on\n/dev/disk3s5 488245288 300000000 150000000 67% 1 2 0% /System/Volumes/Data\n";
+        assert_eq!(parse_df(out), Some(150_000_000 * 1024));
+        assert_eq!(parse_df(""), None);
+    }
+
+    #[test]
+    fn app_paths_match_literally_in_pgrep() {
+        assert_eq!(
+            regex_escape("/Applications/Foo (Beta) C++.app"),
+            "/Applications/Foo \\(Beta\\) C\\+\\+\\.app"
+        );
+    }
+
     use super::*;
 
     #[test]

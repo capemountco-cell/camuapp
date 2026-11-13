@@ -237,8 +237,40 @@ pub fn is_update(
         }
 }
 
+/// The first number of a version: "3.7.1" → 3.
+pub fn major(v: &str) -> Option<u64> {
+    tokens(v).into_iter().find_map(|t| match t {
+        Token::Number(n) => Some(n),
+        Token::Word(_) => None,
+    })
+}
+
+/// A move to a new major version, which can need a new licence or change
+/// how an app works: 5.x → 6.0. Not for apps whose first number counts
+/// releases (Chrome 140 → 141) or years (2025.3 → 2026.1).
+pub fn is_major_jump(remote: &str, installed: &str) -> bool {
+    match (major(remote), major(installed)) {
+        (Some(new), Some(old)) => new > old && old < 50,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn major_jumps() {
+        assert!(is_major_jump("6.0", "5.9.2"));
+        assert!(is_major_jump("13.0", "12.4"));
+        assert!(!is_major_jump("5.10", "5.9"));
+        assert!(
+            !is_major_jump("141.0.7390", "140.0.7339"),
+            "release counters"
+        );
+        assert!(!is_major_jump("2026.1", "2025.3"), "years");
+        assert!(!is_major_jump("5.0", "6.0"));
+        assert_eq!(major("v3.7.1"), Some(3));
+    }
 
     /// Formats found across Homebrew's catalog and in real apps. None of these
     /// may read as an update when the app is current.
