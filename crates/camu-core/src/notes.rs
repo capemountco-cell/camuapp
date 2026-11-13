@@ -48,7 +48,10 @@ fn decode_entities(text: &str) -> String {
     while let Some(amp) = rest.find('&') {
         out.push_str(&rest[..amp]);
         rest = &rest[amp..];
-        let Some(semi) = rest[..rest.len().min(10)].find(';') else {
+        // An entity is short ("&amp;", "&#x4e2d;"): look for its ";" within
+        // the next few characters. Counting bytes could cut a character in two.
+        let window = rest.char_indices().nth(10).map_or(rest.len(), |(i, _)| i);
+        let Some(semi) = rest[..window].find(';') else {
             out.push('&');
             rest = &rest[1..];
             continue;
