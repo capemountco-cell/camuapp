@@ -169,9 +169,11 @@ p {
   letter-spacing: -0.01em;
 }
 
-.title-logo .mark {
-  width: 20px;
-  height: 20px;
+.wordmark {
+  display: block;
+  color: var(--text);
+  /* The drag region is the title row; the wordmark mustn't swallow drags. */
+  pointer-events: none;
 }
 
 .toolrow {
@@ -1138,7 +1140,7 @@ html.is-popover body {
 }
 
 .pop-title {
-  font-weight: 600;
+  margin-left: 2px;
 }
 
 .pop-body {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { AppIcon } from "./components/AppIcon";
-import { CheckCircle, Gear, Mark, Refresh } from "./components/Icons";
+import { CheckCircle, Gear, Refresh, Wordmark } from "./components/Icons";
 import { isBusy, phaseLabel } from "./lib/model";
 import {
   checkUpdates,
@@ -72,8 +72,7 @@ export function Popover() {
   return (
     <div className="pop">
       <header className="pop-head">
-        <Mark />
-        <span className="pop-title">Camu</span>
+        <Wordmark height={12} className="wordmark pop-title" />
         <span className="spacer" />
         <button
           type="button"
