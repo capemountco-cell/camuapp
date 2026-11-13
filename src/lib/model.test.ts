@@ -13,6 +13,9 @@ import {
   savePrefs,
   toggle,
   updateGroups,
+  updateAllRows,
+  checkTrouble,
+  holdLabel,
   type Row,
 } from "./model";
 import type { Phase } from "./native";
@@ -151,5 +154,48 @@ describe("source filter", () => {
     expect([ra, rb].filter((r) => bySource(r, "homebrew"))).toEqual([ra]);
     expect([ra, rb].filter((r) => bySource(r, "all"))).toHaveLength(2);
     expect(sourceCounts([ra, rb])).toMatchObject({ all: 2, homebrew: 1, sparkle: 1, appStore: 0 });
+  });
+});
+
+describe("needs-you, holds and Update All", () => {
+  const base = (over: Partial<Report>): Row => ({
+    app: { path: "/A.app", fileName: "A", name: "A", bundleId: "com.a", version: "5.2", build: null, sparkleFeed: null, fromAppStore: false, minimumOs: null, iconFile: null },
+    report: {
+      id: "/A.app",
+      app: {} as Report["app"],
+      status: "updateAvailable",
+      best: { source: "sparkle", version: "6.0", build: null, isUpdate: true, releaseNotes: null, releaseNotesUrl: null, downloadUrl: null, pageUrl: null, minimumOs: null, date: null, cask: null },
+      findings: [],
+      errors: [],
+      install: { kind: "download", url: "https://x/a.zip" },
+      homebrewCask: null,
+      ...over,
+    },
+  });
+
+  it("puts major versions and notices in Needs you, holds in Skipped", () => {
+    const major = base({ major: true });
+    const held = base({ hold: { kind: "skipped", version: "6.0" } });
+    const plain = base({});
+    const groups = new Map(updateGroups([major, held, plain], new Map()));
+    expect(groups.get("needsYou")).toEqual([major]);
+    expect(groups.get("held")).toEqual([held]);
+    expect(groups.get("oneClick")).toEqual([plain]);
+    expect(updateAllRows([major, held, plain])).toEqual([plain]);
+    // When the user doesn't want to be asked, majors go with the rest.
+    expect(updateAllRows([major, plain], false)).toEqual([major, plain]);
+  });
+
+  it("calls it offline only when most checks failed", () => {
+    const failed = base({ status: "failed" });
+    const ok = base({ status: "upToDate" });
+    expect(checkTrouble([failed, failed, ok])).toEqual({ failed: 2, checked: 3 });
+    expect(checkTrouble([failed, ok, ok])).toBeNull();
+  });
+
+  it("labels holds", () => {
+    expect(holdLabel({ kind: "skipped", version: "6.0" })).toBe("6.0 skipped");
+    expect(holdLabel({ kind: "pinned", major: 5 })).toBe("Staying on 5.x");
+    expect(holdLabel({ kind: "snoozed", until: 86_400 * 3 }, 0)).toBe("Reminding you in 3 days");
   });
 });

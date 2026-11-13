@@ -18,11 +18,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use camu_core::backups;
+use camu_core::check::Prefs;
 use camu_core::fetch::HttpFetch;
+use camu_core::history::{self, Entry, How, Outcome};
 use camu_core::selfupdate::{self, SelfUpdate};
 use camu_core::settings::{self, Settings};
 use camu_core::update::{self, Backup, Dirs, Job, Phase, Updater};
-use camu_core::{icon, launch, platform, scan, Checker, Install, InstalledApp, Report, Status};
+use camu_core::{icon, launch, platform, scan, Checker, InstalledApp, Report, Status};
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
@@ -51,6 +54,16 @@ type Shared = Arc<Inner>;
 
 const NO_HOME: &str = "Camu can't find your home folder";
 
+/// Clears a busy flag when dropped, so a panic mid-run can't leave Camu
+/// thinking a check or update is still running forever.
+struct Busy<'a>(&'a AtomicBool);
+
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Run blocking work off the main thread and flatten the join error.
 async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
@@ -71,7 +84,7 @@ impl Inner {
         }
     }
 
-    /// Updates waiting, ignored apps left out.
+    /// Updates waiting: ignored apps and held-back versions left out.
     fn pending(&self) -> Vec<Report> {
         let ignored = self.settings().ignored;
         let mut out: Vec<Report> = self
@@ -79,11 +92,59 @@ impl Inner {
             .lock()
             .unwrap()
             .values()
-            .filter(|r| r.status == Status::UpdateAvailable && !ignored.contains(&r.app.bundle_id))
+            .filter(|r| {
+                r.status == Status::UpdateAvailable
+                    && r.hold.is_none()
+                    && !ignored.contains(&r.app.bundle_id)
+            })
             .cloned()
             .collect();
         out.sort_by_key(|r| r.app.name.to_lowercase());
         out
+    }
+
+    /// What Update All installs: pending updates that don't need the user
+    /// first (major versions when asked, ones that need a newer macOS or the
+    /// developer's own updater).
+    fn update_all_ids(&self) -> Vec<String> {
+        let settings = self.settings();
+        self.pending()
+            .into_iter()
+            .filter(|r| !(settings.ask_major && r.major))
+            .filter(|r| r.notice.is_none())
+            .map(|r| r.id)
+            .collect()
+    }
+
+    fn installed_bundle_ids(&self) -> HashSet<String> {
+        self.reports
+            .lock()
+            .unwrap()
+            .values()
+            .map(|r| r.app.bundle_id.clone())
+            .collect()
+    }
+
+    /// Apply the backup retention settings.
+    fn prune_backups(&self) {
+        let (Some(dirs), settings) = (&self.dirs, self.settings()) else {
+            return;
+        };
+        let installed = self.installed_bundle_ids();
+        let installed = (!installed.is_empty()).then_some(&installed);
+        backups::prune(
+            &dirs.backups,
+            settings.backup_days,
+            settings.backup_max_gb,
+            installed,
+            settings::now_secs(),
+        );
+    }
+
+    fn record(&self, entries: Vec<Entry>) {
+        if let Some(dir) = &self.support {
+            let _ = history::append(dir, entries, settings::now_secs());
+        }
     }
 }
 
@@ -92,6 +153,7 @@ fn run_check(app: &AppHandle, inner: &Inner) -> Result<usize, String> {
     if inner.checking.swap(true, Ordering::SeqCst) {
         return Err("A check is already running".into());
     }
+    let _busy = Busy(&inner.checking);
     let settings = inner.settings();
     inner.checker.refresh(platform::environment());
     let apps = scan::scan(&scan::default_roots());
@@ -99,7 +161,13 @@ fn run_check(app: &AppHandle, inner: &Inner) -> Result<usize, String> {
     inner.reports.lock().unwrap().clear();
 
     let beta: HashSet<String> = settings.beta.iter().cloned().collect();
-    inner.checker.check_all(&apps, &beta, 8, &|report| {
+    let prefs = |a: &InstalledApp| Prefs {
+        include_beta: beta.contains(&a.bundle_id),
+        max_major: settings.pinned.get(&a.bundle_id).copied(),
+    };
+    let now = settings::now_secs();
+    inner.checker.check_all(&apps, &prefs, 8, &|mut report| {
+        settings::apply_choices(&mut report, &settings, now);
         inner
             .reports
             .lock()
@@ -108,7 +176,6 @@ fn run_check(app: &AppHandle, inner: &Inner) -> Result<usize, String> {
         let _ = app.emit("camu://report", report);
     });
 
-    let now = settings::now_secs();
     let reports: Vec<Report> = inner.reports.lock().unwrap().values().cloned().collect();
     let fresh_text = {
         let mut state = inner.state.lock().unwrap();
@@ -120,22 +187,25 @@ fn run_check(app: &AppHandle, inner: &Inner) -> Result<usize, String> {
     if let (true, Some((title, body))) = (settings.notify, fresh_text) {
         let _ = app.notification().builder().title(title).body(body).show();
     }
+    drop(_busy);
     refresh_tray(app, inner);
+    inner.prune_backups();
     let _ = app.emit("camu://check-finished", now);
-    inner.checking.store(false, Ordering::SeqCst);
     Ok(apps.len())
 }
 
-/// Update apps by id, reporting progress as events.
+/// Update apps by id, reporting progress as events, and log the outcome.
 fn run_updates(
     app: &AppHandle,
     inner: &Inner,
     ids: &[String],
+    how: How,
 ) -> Result<Vec<(String, Phase)>, String> {
     let updater = inner.updater.as_ref().ok_or(NO_HOME)?;
     if inner.updating.swap(true, Ordering::SeqCst) {
         return Err("An update is already running".into());
     }
+    let busy = Busy(&inner.updating);
     let jobs: Vec<Job> = {
         let reports = inner.reports.lock().unwrap();
         ids.iter()
@@ -147,24 +217,62 @@ fn run_updates(
     let _ = app.emit("camu://update-started", &ids);
 
     let results = Mutex::new(Vec::new());
-    updater.run(jobs.clone(), &|event| {
-        if matches!(
-            event.phase,
-            Phase::Done { .. } | Phase::Failed { .. } | Phase::Handoff { .. }
-        ) {
-            results
-                .lock()
-                .unwrap()
-                .push((event.id.clone(), event.phase.clone()));
-        }
-        let _ = app.emit("camu://update", event);
-    });
+    updater.run_with(
+        jobs.clone(),
+        &|event| {
+            if matches!(
+                event.phase,
+                Phase::Done { .. } | Phase::Failed { .. } | Phase::Handoff { .. }
+            ) {
+                results
+                    .lock()
+                    .unwrap()
+                    .push((event.id.clone(), event.phase.clone()));
+            }
+            let _ = app.emit("camu://update", event);
+        },
+        how == How::Manual,
+    );
     let results = results.into_inner().unwrap();
 
-    // Finished apps are no longer pending.
+    // Log every outcome, and mark finished apps as no longer pending.
+    let now = settings::now_secs();
+    let mut entries = Vec::new();
     {
         let mut reports = inner.reports.lock().unwrap();
         for (id, phase) in &results {
+            let Some(job) = jobs.iter().find(|j| &j.id == id) else {
+                continue;
+            };
+            let (outcome, to, message) = match phase {
+                Phase::Done { version } => (Outcome::Updated, Some(version.clone()), None),
+                Phase::Failed { message } => (
+                    Outcome::Failed,
+                    Some(job.target_version.clone()),
+                    Some(message.clone()),
+                ),
+                Phase::Handoff { message } => (
+                    Outcome::HandedOff,
+                    Some(job.target_version.clone()),
+                    Some(message.clone()),
+                ),
+                _ => continue,
+            };
+            entries.push(Entry {
+                at: now,
+                id: id.clone(),
+                bundle_id: job.app.bundle_id.clone(),
+                name: job.app.name.clone(),
+                from: job.app.version.clone(),
+                to,
+                source: job
+                    .source
+                    .and_then(|s| serde_json::to_value(s).ok())
+                    .and_then(|v| v.as_str().map(str::to_string)),
+                how,
+                outcome,
+                message,
+            });
             if matches!(phase, Phase::Done { .. }) {
                 if let Some(r) = reports.get_mut(id) {
                     r.status = Status::UpToDate;
@@ -172,9 +280,12 @@ fn run_updates(
             }
         }
     }
-    inner.updating.store(false, Ordering::SeqCst);
+    inner.record(entries);
+    drop(busy);
     refresh_tray(app, inner);
+    inner.prune_backups();
     let _ = app.emit("camu://update-finished", ());
+    let _ = app.emit("camu://history-changed", ());
     Ok(results)
 }
 
@@ -251,7 +362,8 @@ fn refresh_tray(app: &AppHandle, inner: &Inner) {
         n => format!("{n} updates available"),
     };
     let _ = tray.set_tooltip(Some(format!("Camu — {summary}")));
-    if let Ok(menu) = build_menu(app, &summary, &pending, busy, checking) {
+    let update_all = inner.update_all_ids().len();
+    if let Ok(menu) = build_menu(app, &summary, &pending, update_all, busy, checking) {
         let _ = tray.set_menu(Some(menu));
     }
 }
@@ -260,6 +372,7 @@ fn build_menu(
     app: &AppHandle,
     summary: &str,
     pending: &[Report],
+    update_all: usize,
     busy: bool,
     checking: bool,
 ) -> tauri::Result<Menu<tauri::Wry>> {
@@ -297,13 +410,13 @@ fn build_menu(
     let update_label = if busy {
         "Updating…".to_string()
     } else {
-        format!("Update All ({})", pending.len())
+        format!("Update All ({})", update_all)
     };
     menu.append(&MenuItem::with_id(
         app,
         "update_all",
         update_label,
-        !busy && !pending.is_empty(),
+        !busy && update_all > 0,
         Some("CmdOrCtrl+U"),
     )?)?;
     let check_label = if checking { "Checking…" } else { "Check Now" };
@@ -338,8 +451,8 @@ fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "update_all" => {
             std::thread::spawn(move || {
-                let ids: Vec<String> = inner.pending().into_iter().map(|r| r.id).collect();
-                let _ = run_updates(&app, &inner, &ids);
+                let ids = inner.update_all_ids();
+                let _ = run_updates(&app, &inner, &ids, How::Manual);
             });
         }
         "check" => {
@@ -371,10 +484,10 @@ fn apply_dock(app: &AppHandle, settings: &Settings) {
     let _ = (app, settings);
 }
 
-/// Every minute: run a scheduled check when one is due, install one-click
-/// updates if the user asked for that, and look for a new Camu once a day.
+/// Every minute: run a scheduled check when one is due, install updates
+/// that are safe to install unattended if the user asked for that, and look
+/// for a new Camu once a day.
 fn scheduler(app: AppHandle, inner: Shared) {
-    let mut last_self_check = 0u64;
     // Give the window time to start its own launch check first.
     std::thread::sleep(Duration::from_secs(30));
     loop {
@@ -388,72 +501,126 @@ fn scheduler(app: AppHandle, inner: Shared) {
         let due = idle && settings::check_due(&settings, &state, now);
 
         if due && run_check(&app, &inner).is_ok() && settings.auto_update {
-            let ids: Vec<String> = inner
-                .pending()
-                .into_iter()
-                .filter(|r| {
-                    matches!(
-                        r.install,
-                        Install::Homebrew { .. } | Install::Download { .. }
-                    )
-                })
-                .map(|r| r.id)
-                .collect();
-            if !ids.is_empty() {
-                if let Ok(results) = run_updates(&app, &inner, &ids) {
-                    let done = results
-                        .iter()
-                        .filter(|(_, p)| matches!(p, Phase::Done { .. }))
-                        .count();
-                    let failed = results
-                        .iter()
-                        .filter(|(_, p)| matches!(p, Phase::Failed { .. }))
-                        .count();
-                    if settings.notify && done + failed > 0 {
-                        let body = match failed {
-                            0 => format!("Updated {done} app{}.", if done == 1 { "" } else { "s" }),
-                            _ => format!("Updated {done}; {failed} need attention."),
-                        };
-                        let _ = app.notification().builder().title("Camu").body(body).show();
-                    }
-                }
-            }
+            auto_install(&app, &inner, &settings);
         }
 
-        if now.saturating_sub(last_self_check) >= 24 * 3600 {
-            last_self_check = now;
+        let last_self = inner.state.lock().unwrap().last_self_check.unwrap_or(0);
+        if now.saturating_sub(last_self) >= 24 * 3600 {
+            inner.state.lock().unwrap().last_self_check = Some(now);
+            inner.save_state();
             check_self(&app, &inner);
-            // With automatic installs on, Camu updates itself too, between
-            // update runs. It relaunches on the new version.
-            let idle =
-                !inner.checking.load(Ordering::SeqCst) && !inner.updating.load(Ordering::SeqCst);
-            let ready = inner
-                .self_update
-                .lock()
-                .unwrap()
-                .clone()
-                .filter(|f| f.can_install);
-            if let Some(found) = ready.filter(|_| idle && inner.settings().auto_update) {
-                if install_self(&inner).is_ok() {
-                    if settings.notify {
-                        let _ = app
-                            .notification()
-                            .builder()
-                            .title("Camu")
-                            .body(format!("Updating Camu to {}.", found.version))
-                            .show();
-                    }
-                    app.exit(0);
+            auto_install_self(&app, &inner, &settings);
+        }
+        std::thread::sleep(Duration::from_secs(60));
+    }
+}
+
+/// Install what's safe to install unattended: no apps in use, no password
+/// prompts, no major versions (unless the user allowed them), only inside
+/// quiet hours, and never something that already failed this way.
+fn auto_install(app: &AppHandle, inner: &Inner, settings: &Settings) {
+    if let (Some(window), Some(hour)) = (settings.quiet_hours, platform::local_hour()) {
+        if !window.contains(hour) {
+            return;
+        }
+    }
+    let failed = inner.state.lock().unwrap().auto_failed.clone();
+    let ids: Vec<String> = inner
+        .pending()
+        .into_iter()
+        .filter(|r| {
+            let facts = settings::AutoFacts {
+                running: camu_core::macos::is_running(&r.app.path),
+                needs_password: update::needs_password(r),
+                failed_before: r
+                    .best
+                    .as_ref()
+                    .is_some_and(|b| failed.get(&r.app.bundle_id) == Some(&b.version)),
+            };
+            settings::auto_installable(r, settings, facts)
+        })
+        .map(|r| r.id)
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let Ok(results) = run_updates(app, inner, &ids, How::Automatic) else {
+        return;
+    };
+    // Remember failures so they aren't retried, or announced, every run.
+    {
+        let reports = inner.reports.lock().unwrap();
+        let mut state = inner.state.lock().unwrap();
+        for (id, phase) in &results {
+            if let (Phase::Failed { .. }, Some(r)) = (phase, reports.get(id)) {
+                if let Some(best) = &r.best {
+                    state
+                        .auto_failed
+                        .insert(r.app.bundle_id.clone(), best.version.clone());
                 }
             }
         }
-        std::thread::sleep(Duration::from_secs(60));
+    }
+    inner.save_state();
+    let done = results
+        .iter()
+        .filter(|(_, p)| matches!(p, Phase::Done { .. }))
+        .count();
+    let failed = results
+        .iter()
+        .filter(|(_, p)| matches!(p, Phase::Failed { .. }))
+        .count();
+    if settings.notify && done + failed > 0 {
+        let body = match failed {
+            0 => format!("Updated {done} app{}.", if done == 1 { "" } else { "s" }),
+            _ => format!("Updated {done}; {failed} need you. See History in Camu."),
+        };
+        let _ = app.notification().builder().title("Camu").body(body).show();
+    }
+}
+
+/// With automatic installs on, Camu updates itself too, between update
+/// runs, and relaunches on the new version. A version that failed to
+/// install itself isn't tried again by itself.
+fn auto_install_self(app: &AppHandle, inner: &Inner, settings: &Settings) {
+    let idle = !inner.checking.load(Ordering::SeqCst) && !inner.updating.load(Ordering::SeqCst);
+    let ready = inner
+        .self_update
+        .lock()
+        .unwrap()
+        .clone()
+        .filter(|f| f.can_install);
+    let Some(found) = ready.filter(|_| idle && settings.auto_update) else {
+        return;
+    };
+    if inner.state.lock().unwrap().self_install_failed.as_deref() == Some(&found.version) {
+        return;
+    }
+    match install_self(inner) {
+        Ok(()) => {
+            if settings.notify {
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("Camu")
+                    .body(format!("Updating Camu to {}.", found.version))
+                    .show();
+            }
+            app.exit(0);
+        }
+        Err(_) => {
+            inner.state.lock().unwrap().self_install_failed = Some(found.version.clone());
+            inner.save_state();
+        }
     }
 }
 
 /// Verify the waiting Camu update and hand over to the script that swaps it
 /// in once Camu quits. The caller must quit Camu right after.
 fn install_self(inner: &Inner) -> Result<(), String> {
+    if inner.updating.load(Ordering::SeqCst) {
+        return Err("Wait for the current updates to finish".into());
+    }
     let found = inner
         .self_update
         .lock()
@@ -461,15 +628,16 @@ fn install_self(inner: &Inner) -> Result<(), String> {
         .clone()
         .ok_or("Camu is up to date")?;
     if !found.can_install {
-        return Err(
-            "Camu can't verify this update itself. Download it from the release page.".into(),
-        );
+        return Err("Camu can't verify this update itself. Download it from camu.cc.".into());
     }
     let url = found
         .download_url
         .clone()
         .ok_or("the release has no download")?;
     let bundle = selfupdate::own_bundle().ok_or("Camu isn't running from an app bundle")?;
+    if let Some(reason) = selfupdate::replace_blocker(&bundle) {
+        return Err(reason);
+    }
     let updater = inner.updater.as_ref().ok_or(NO_HOME)?;
     let me = InstalledApp::read(&bundle).ok_or("Camu can't read its own bundle")?;
     let new = updater.prepare(&me, &url, &found.version, found.sha256.as_deref())?;
@@ -506,7 +674,7 @@ async fn update_apps(
     ids: Vec<String>,
 ) -> Result<(), String> {
     let inner = state.inner().clone();
-    blocking(move || run_updates(&app, &inner, &ids).map(|_| ())).await?
+    blocking(move || run_updates(&app, &inner, &ids, How::Manual).map(|_| ())).await?
 }
 
 /// Everything the menu bar panel shows, in one call.
@@ -562,8 +730,14 @@ fn set_settings(
     }
     *state.settings.lock().unwrap() = settings.clone();
     apply_dock(&app, &settings);
-    refresh_tray(&app, &state);
+    reapply_choices(&app, &state);
     Ok(settings)
+}
+
+/// This Mac's chip, for the "Intel only" badge.
+#[tauri::command]
+fn host_arch() -> camu_core::arch::Arch {
+    camu_core::arch::Arch::host()
 }
 
 #[tauri::command]
@@ -604,14 +778,178 @@ async fn list_backups(state: State<'_, Shared>) -> Result<Vec<Backup>, String> {
     blocking(move || update::list_backups(&dirs.backups)).await
 }
 
+/// Put back the previous version of an app, skip the version it was on so
+/// the next check doesn't reinstall it, log it, and re-check the app.
 #[tauri::command]
-async fn roll_back(state: State<'_, Shared>, path: PathBuf) -> Result<String, String> {
+async fn roll_back(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    path: PathBuf,
+) -> Result<String, String> {
     let inner = state.inner().clone();
     blocking(move || {
-        let app = InstalledApp::read(&path).ok_or("that app is no longer installed")?;
-        inner.updater.as_ref().ok_or(NO_HOME)?.roll_back(&app)
+        if inner.updating.load(Ordering::SeqCst) {
+            return Err("Wait for the current updates to finish".to_string());
+        }
+        let current = InstalledApp::read(&path).ok_or("that app is no longer installed")?;
+        let restored = inner.updater.as_ref().ok_or(NO_HOME)?.roll_back(&current)?;
+
+        let mut settings = inner.settings();
+        settings
+            .skipped
+            .insert(current.bundle_id.clone(), current.version.clone());
+        save_settings(&inner, &settings);
+        inner.record(vec![Entry {
+            at: settings::now_secs(),
+            id: current.id(),
+            bundle_id: current.bundle_id.clone(),
+            name: current.name.clone(),
+            from: current.version.clone(),
+            to: Some(restored.clone()),
+            source: None,
+            how: How::Manual,
+            outcome: Outcome::RolledBack,
+            message: Some(format!("{} will be skipped", current.version)),
+        }]);
+        recheck(&app, &inner, &path);
+        let _ = app.emit("camu://history-changed", ());
+        Ok(restored)
     })
     .await?
+}
+
+/// Check one app again and send its new report.
+fn recheck(app: &AppHandle, inner: &Inner, path: &std::path::Path) {
+    let Some(installed) = InstalledApp::read(path) else {
+        return;
+    };
+    let settings = inner.settings();
+    let prefs = Prefs {
+        include_beta: settings.beta.contains(&installed.bundle_id),
+        max_major: settings.pinned.get(&installed.bundle_id).copied(),
+    };
+    let mut report = inner.checker.check_with(&installed, &prefs);
+    settings::apply_choices(&mut report, &settings, settings::now_secs());
+    inner
+        .reports
+        .lock()
+        .unwrap()
+        .insert(report.id.clone(), report.clone());
+    let _ = app.emit("camu://report", report);
+    refresh_tray(app, inner);
+}
+
+fn save_settings(inner: &Inner, settings: &Settings) {
+    let settings = settings.clone().normalised();
+    if let Some(dir) = &inner.support {
+        let _ = settings::save_settings(dir, &settings);
+    }
+    *inner.settings.lock().unwrap() = settings;
+}
+
+/// Re-apply the user's choices to every report and send the ones that
+/// changed.
+fn reapply_choices(app: &AppHandle, inner: &Inner) {
+    let settings = inner.settings();
+    let now = settings::now_secs();
+    let changed: Vec<Report> = {
+        let mut reports = inner.reports.lock().unwrap();
+        reports
+            .values_mut()
+            .filter_map(|r| {
+                let before = r.hold.clone();
+                settings::apply_choices(r, &settings, now);
+                (r.hold != before).then(|| r.clone())
+            })
+            .collect()
+    };
+    for report in changed {
+        let _ = app.emit("camu://report", report);
+    }
+    refresh_tray(app, inner);
+}
+
+/// A per-app choice from the details panel: "skip" this version, "snooze"
+/// for `days`, "pin" to the installed major version, or "clear" them all.
+#[tauri::command]
+fn set_choice(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    bundle_id: String,
+    choice: String,
+    version: Option<String>,
+    days: Option<u64>,
+) -> Result<Settings, String> {
+    let inner = state.inner().clone();
+    let mut settings = inner.settings();
+    match choice.as_str() {
+        "skip" => {
+            let version = version.ok_or("which version to skip?")?;
+            settings.skipped.insert(bundle_id, version);
+        }
+        "snooze" => {
+            let until = settings::now_secs() + days.unwrap_or(30) * 86_400;
+            settings.snoozed.insert(bundle_id, until);
+        }
+        "pin" => {
+            let major = version
+                .as_deref()
+                .and_then(camu_core::version::major)
+                .ok_or("which major version?")?;
+            settings.pinned.insert(bundle_id, major);
+        }
+        "clear" => {
+            settings.skipped.remove(&bundle_id);
+            settings.snoozed.remove(&bundle_id);
+            settings.pinned.remove(&bundle_id);
+        }
+        other => return Err(format!("unknown choice {other}")),
+    }
+    save_settings(&inner, &settings);
+    reapply_choices(&app, &inner);
+    Ok(inner.settings())
+}
+
+#[tauri::command]
+fn list_history(state: State<'_, Shared>) -> Vec<Entry> {
+    state
+        .support
+        .as_deref()
+        .map(|dir| history::trimmed(history::load(dir), settings::now_secs()))
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+async fn backup_summary(state: State<'_, Shared>) -> Result<backups::Summary, String> {
+    let inner = state.inner().clone();
+    let dirs = inner.dirs.clone().ok_or(NO_HOME)?;
+    blocking(move || backups::summary(&dirs.backups, &inner.installed_bundle_ids())).await
+}
+
+/// Delete backups: `scope` "deleted" (of apps no longer installed) or "all".
+#[tauri::command]
+async fn delete_backups(state: State<'_, Shared>, scope: String) -> Result<usize, String> {
+    let inner = state.inner().clone();
+    let dirs = inner.dirs.clone().ok_or(NO_HOME)?;
+    blocking(move || {
+        if inner.updating.load(Ordering::SeqCst) {
+            return Err("Wait for the current updates to finish".to_string());
+        }
+        let installed = inner.installed_bundle_ids();
+        Ok(match scope.as_str() {
+            "deleted" if !installed.is_empty() => backups::delete(&dirs.backups, Some(&installed)),
+            "all" => backups::delete(&dirs.backups, None),
+            _ => 0,
+        })
+    })
+    .await?
+}
+
+#[tauri::command]
+fn reveal_backups(state: State<'_, Shared>) -> Result<(), String> {
+    let dirs = state.dirs.clone().ok_or(NO_HOME)?;
+    let _ = std::fs::create_dir_all(&dirs.backups);
+    launch::reveal(&dirs.backups)
 }
 
 #[tauri::command]
@@ -730,11 +1068,17 @@ pub fn run() {
             get_settings,
             set_settings,
             app_version,
+            host_arch,
             self_update_status,
             check_self_update,
             install_self_update,
             list_backups,
             roll_back,
+            set_choice,
+            list_history,
+            backup_summary,
+            delete_backups,
+            reveal_backups,
             app_icon,
             open_url,
             open_app,

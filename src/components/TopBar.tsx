@@ -1,8 +1,8 @@
 import type { Tab } from "../lib/model";
 import type { SelfUpdate } from "../lib/native";
-import { ArrowUpCircle, CheckCircle, EyeOff, Gear, Question, Wordmark, Refresh, Search } from "./Icons";
+import { ArrowUpCircle, CheckCircle, EyeOff, Gear, History, Question, Wordmark, Refresh, Search } from "./Icons";
 
-export type View = Tab | "settings";
+export type View = Tab | "settings" | "history";
 
 const PLACES: { id: Tab; label: string; keys: string; icon: React.ReactNode }[] = [
   { id: "updates", label: "Updates", keys: "G then U", icon: <ArrowUpCircle className="i tool-icon" /> },
@@ -52,6 +52,16 @@ export function TopBar({ view, counts, checking, selfUpdate, onView, onCheck, on
               {p.id === "updates" && counts.updates > 0 && <span className="tool-badge">{counts.updates}</span>}
             </button>
           ))}
+          <button
+            type="button"
+            className={`tool${view === "history" ? " current" : ""}`}
+            aria-current={view === "history" ? "page" : undefined}
+            title="History (G then H)"
+            onClick={() => onView("history")}
+          >
+            <History className="i tool-icon" />
+            <span className="tool-label">History</span>
+          </button>
         </div>
         <div className="toolgroup" data-tauri-drag-region>
           <button

@@ -3,13 +3,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CommandPalette, type PaletteCommand } from "./components/CommandPalette";
 import { DetailPanel } from "./components/DetailPanel";
 import { FilterMenu } from "./components/FilterMenu";
-import { ArrowUpCircle, CheckCircle, EyeOff, Folder, Question, Refresh, Undo } from "./components/Icons";
+import { HistoryView } from "./components/HistoryView";
+import { ArrowUpCircle, CheckCircle, EyeOff, Folder, Question, Refresh, Undo, Warning } from "./components/Icons";
 import { Kbd } from "./components/Kbd";
 import { Row } from "./components/Row";
 import { SettingsView } from "./components/SettingsView";
 import { TopBar, type View } from "./components/TopBar";
 import {
+  checkTrouble,
   group,
+  updateAllRows,
+  wrongVersionReport,
   isBusy,
   isOneClick,
   clearPrefs,
@@ -41,6 +45,12 @@ import {
   revealApp,
   rollBack,
   updateApps,
+  hostArch,
+  listHistory,
+  setChoice,
+  type Arch,
+  type Choice,
+  type HistoryEntry,
   type Backup,
   type SelfUpdate,
   type Settings,
@@ -55,6 +65,7 @@ const TAB_TITLE: Record<View, string> = {
   other: "Unsupported",
   ignored: "Ignored",
   settings: "Settings",
+  history: "History",
 };
 
 const NO_SETTINGS: Settings = {
@@ -65,6 +76,15 @@ const NO_SETTINGS: Settings = {
   showInDock: true,
   ignored: [],
   beta: [],
+  skipped: {},
+  snoozed: {},
+  pinned: {},
+  autoSkipOpen: true,
+  autoNoPassword: true,
+  askMajor: true,
+  quietHours: null,
+  backupDays: 30,
+  backupMaxGb: 10,
 };
 
 const GO_KEY: Record<Tab, string> = { updates: "U", current: "C", other: "S", ignored: "I" };
@@ -105,7 +125,9 @@ export function App() {
   const [updating, setUpdating] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [view, setView] = useState<View>("updates");
-  const tab: Tab = view === "settings" ? "updates" : view;
+  const tab: Tab = view === "settings" || view === "history" ? "updates" : view;
+  const [host, setHost] = useState<Arch | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [filter, setFilter] = useState<SourceFilter>("all");
   const [selected, setSelected] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -145,6 +167,9 @@ export function App() {
   const refreshBackups = useCallback(() => {
     if (nativeAvailable()) listBackups().then(setBackups, () => {});
   }, []);
+  const refreshHistory = useCallback(() => {
+    if (nativeAvailable()) listHistory().then(setHistory, () => {});
+  }, []);
 
   // State follows events, so checks and updates started from the menu bar
   // or the schedule show up here exactly like ones started in the window.
@@ -182,8 +207,12 @@ export function App() {
         refreshBackups();
       }),
       events.selfUpdate(setSelfUpdate),
+      events.historyChanged(() => {
+        refreshHistory();
+        refreshBackups();
+      }),
       events.navigate((v) => {
-        if (["updates", "current", "other", "ignored", "settings"].includes(v)) setView(v as View);
+        if (["updates", "current", "other", "ignored", "settings", "history"].includes(v)) setView(v as View);
       }),
       events.select((id) => {
         setSelected(id);
@@ -192,13 +221,15 @@ export function App() {
       }),
     ];
     return () => subscriptions.forEach((p) => void p.then((stop) => stop()));
-  }, [refreshBackups]);
+  }, [refreshBackups, refreshHistory]);
 
   const started = useRef(false);
   useEffect(() => {
     if (started.current || !nativeAvailable()) return;
     started.current = true;
     refreshBackups();
+    refreshHistory();
+    hostArch().then(setHost, () => {});
     appVersion().then(setVersion, () => {});
     selfUpdateStatus().then(setSelfUpdate, () => {});
     // Settings live on the Rust side now; bring over choices made before.
@@ -210,7 +241,7 @@ export function App() {
       })
       .catch(() => {})
       .finally(() => check());
-  }, [check, refreshBackups]);
+  }, [check, refreshBackups, refreshHistory]);
 
   const rows: RowData[] = useMemo(
     () => (apps ?? []).map((app) => ({ app, report: reports.get(app.path) })),
@@ -222,9 +253,9 @@ export function App() {
   const groups = useMemo(
     () =>
       tab === "updates"
-        ? updateGroups(visible, phases).map(([g, r]) => [updateGroupLabel[g], r] as const)
+        ? updateGroups(visible, phases, prefs.askMajor).map(([g, r]) => [updateGroupLabel[g], r] as const)
         : [[null, visible] as const],
-    [tab, visible, phases],
+    [tab, visible, phases, prefs.askMajor],
   );
   const ordered = useMemo(() => groups.flatMap(([, r]) => r), [groups]);
   const selectedRow = ordered.find((r) => r.app.path === selected) ?? null;
@@ -232,14 +263,15 @@ export function App() {
   /** Updates that can start now: not ignored, not finished, not running. */
   const pending = useMemo(
     () =>
-      tabs.updates.filter((r) => {
+      updateAllRows(tabs.updates, prefs.askMajor).filter((r) => {
         const p = phases.get(r.app.path);
         return p?.phase !== "done" && !isBusy(p);
       }),
-    [tabs.updates, phases],
+    [tabs.updates, phases, prefs.askMajor],
   );
   const oneClick = pending.filter((r) => r.report && isOneClick(r.report.install));
-  const updateCount = tabs.updates.filter((r) => phases.get(r.app.path)?.phase !== "done").length;
+  const updateCount = tabs.updates.filter((r) => phases.get(r.app.path)?.phase !== "done" && !r.report?.hold).length;
+  const trouble = useMemo(() => (checking ? null : checkTrouble(rows)), [checking, rows]);
 
   const runUpdates = useCallback(
     (targets: RowData[]) => {
@@ -282,11 +314,32 @@ export function App() {
     rollBack: (row: RowData) =>
       void rollBack(row.app.path).then(
         (version) => {
-          toast(`${row.app.name} is back on ${version}`, "ok");
+          toast(`${row.app.name} is back on ${version}. Camu will skip the version you left.`, "ok");
           refreshBackups();
         },
         (c) => toast(String(c), "error"),
       ),
+    choice: (row: RowData, choice: Choice) =>
+      void setChoice(row.app.bundleId, choice, choice === "pin" ? row.app.version : row.report?.best?.version, 30).then(
+        (stored) => {
+          setPrefsState(stored);
+          const said: Record<Choice, string> = {
+            skip: `Skipping ${row.app.name} ${row.report?.best?.version ?? ""}`.trim(),
+            snooze: `Camu will remind you about ${row.app.name} in 30 days`,
+            pin: `${row.app.name} stays on version ${row.app.version.match(/\d+/)?.[0] ?? ""}.x`,
+            clear: `${row.app.name}'s update is back`,
+          };
+          toast(said[choice], "ok");
+        },
+        (c) => toast(String(c), "error"),
+      ),
+    report: (row: RowData) => {
+      const text = wrongVersionReport(row, version);
+      navigator.clipboard.writeText(text).then(
+        () => toast("Copied what Camu saw. Paste it in a message to the Camu team.", "ok"),
+        () => toast("Couldn't copy the report", "error"),
+      );
+    },
   };
 
   const goTab = useCallback((next: View) => {
@@ -354,6 +407,11 @@ export function App() {
           goTab(target);
           return;
         }
+        if (key === "h") {
+          e.preventDefault();
+          goTab("history");
+          return;
+        }
       }
       if (key === "g") {
         pendingG.current = window.setTimeout(() => (pendingG.current = null), 800);
@@ -405,6 +463,13 @@ export function App() {
     label: "Settings",
     keys: ["⌘", ","],
     run: () => goTab("settings"),
+  });
+  commands.push({
+    id: "history",
+    group: "Go to",
+    label: "History",
+    keys: ["G", "H"],
+    run: () => goTab("history"),
   });
   if (selectedRow) {
     const r = selectedRow;
@@ -505,11 +570,13 @@ export function App() {
       <section className="main">
         <header className="header">
           <h1>{TAB_TITLE[view]}</h1>
-          {view !== "settings" && <span className="header-count">{counts[tab]}</span>}
+          {view !== "settings" && view !== "history" && <span className="header-count">{counts[tab]}</span>}
           <span className="spacer" />
-          {view !== "settings" && <FilterMenu value={filter} counts={filterCounts} onChange={setFilter} />}
+          {view !== "settings" && view !== "history" && (
+            <FilterMenu value={filter} counts={filterCounts} onChange={setFilter} />
+          )}
           {view === "updates" &&
-            (pending.length === 0 && !updating && !checking && lastChecked ? (
+            (pending.length === 0 && !updating && !checking && lastChecked && !trouble ? (
               <span className="btn ok" role="status">
                 <CheckCircle className="i" />
                 All up to date
@@ -533,7 +600,17 @@ export function App() {
             ))}
         </header>
 
-        {view === "settings" ? (
+        {view === "history" ? (
+          <div className="content">
+            <HistoryView
+              entries={history}
+              rows={rows}
+              backups={backups}
+              onRetry={(row) => runUpdates([row])}
+              onRollBack={(row) => act.rollBack(row)}
+            />
+          </div>
+        ) : view === "settings" ? (
           <SettingsView
             settings={prefs}
             version={version}
@@ -559,6 +636,18 @@ export function App() {
         ) : (
         <div className="content">
           <div className="list-wrap" role="listbox" aria-label={TAB_TITLE[tab]}>
+            {trouble && (
+              <div className="banner" role="status">
+                <Warning className="i s-update" />
+                <span className="banner-text">
+                  Couldn't check {trouble.failed} of {trouble.checked} apps.{" "}
+                  <span className="faint">You may be offline. The list may be out of date.</span>
+                </span>
+                <button type="button" className="btn" onClick={check}>
+                  Try again
+                </button>
+              </div>
+            )}
             {apps === null ? (
               <ul className="list">
                 {Array.from({ length: 9 }, (_, i) => (
@@ -577,6 +666,8 @@ export function App() {
                   <p className="faint">Nothing here from this source</p>
                 ) : tab === "updates" && checking ? (
                   <p className="faint">Looking for updates…</p>
+                ) : tab === "updates" && trouble ? (
+                  <p className="faint">Couldn't check most apps. Try again when you're online.</p>
                 ) : tab === "updates" && lastChecked ? (
                   <>
                     <CheckCircle className="i empty-icon" />
@@ -613,6 +704,8 @@ export function App() {
                           setSelected(row.app.path);
                           setPanelOpen(true);
                         }}
+                        host={host}
+                        askMajor={prefs.askMajor}
                       />
                     ))}
                   </ul>
@@ -635,6 +728,8 @@ export function App() {
               onReveal={() => act.reveal(selectedRow)}
               onLink={act.link}
               onRollBack={() => act.rollBack(selectedRow)}
+              onChoice={(c) => act.choice(selectedRow, c)}
+              onReport={() => act.report(selectedRow)}
             />
           )}
         </div>

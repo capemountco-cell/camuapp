@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::arch::{self, Arch};
+
 /// Where an Electron app's built-in updater looks for new versions, read from
 /// `Contents/Resources/app-update.yml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -14,7 +16,7 @@ pub enum ElectronFeed {
     Generic { url: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstalledApp {
     /// Absolute path to the `.app` bundle. Unique, so it doubles as the id.
@@ -36,6 +38,14 @@ pub struct InstalledApp {
     pub minimum_os: Option<String>,
     /// File name of the icon inside Contents/Resources, if it has one.
     pub icon_file: Option<String>,
+    /// CFBundleExecutable: the binary in Contents/MacOS.
+    pub executable: Option<String>,
+    /// The chips the app's binary runs on, natively. Empty if unreadable.
+    pub archs: Vec<Arch>,
+    /// SUPublicEDKey: the key the app's Sparkle updates are signed with.
+    pub sparkle_key: Option<String>,
+    /// Installed and kept up to date by Setapp.
+    pub setapp: bool,
 }
 
 impl InstalledApp {
@@ -73,6 +83,10 @@ impl InstalledApp {
             .ok()
             .and_then(|yml| parse_electron_feed(&yml));
 
+        let executable = text("CFBundleExecutable");
+        let archs = arch::app_archs(path, executable.as_deref());
+        let setapp =
+            path.components().any(|c| c.as_os_str() == "Setapp") || bundle_id.ends_with("-setapp");
         Some(Self {
             path: path.to_path_buf(),
             file_name,
@@ -85,6 +99,10 @@ impl InstalledApp {
             from_app_store: contents.join("_MASReceipt/receipt").is_file(),
             minimum_os: text("LSMinimumSystemVersion"),
             icon_file,
+            executable,
+            archs,
+            sparkle_key: text("SUPublicEDKey"),
+            setapp,
         })
     }
 

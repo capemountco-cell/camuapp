@@ -24,6 +24,11 @@ pub fn os_version() -> Option<String> {
     }
 }
 
+/// The local hour, 0–23, for quiet hours.
+pub fn local_hour() -> Option<u8> {
+    run("/bin/date", &["+%H"]).and_then(|h| h.parse().ok())
+}
+
 /// App Store storefronts to try: the user's region, then the US store.
 pub fn storefronts() -> Vec<String> {
     let locale = if cfg!(target_os = "macos") {
@@ -54,6 +59,7 @@ pub fn environment() -> Environment {
         os_version: os_version(),
         storefronts: storefronts(),
         installed_casks: homebrew::installed_casks(),
+        arch: crate::arch::Arch::host(),
     }
 }
 

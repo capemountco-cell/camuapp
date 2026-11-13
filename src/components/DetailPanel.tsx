@@ -1,7 +1,9 @@
-import { installLabel, isBusy, otherReason, phaseLabel, sourceLabel, type Row } from "../lib/model";
-import type { Backup, Phase } from "../lib/native";
+import { useState } from "react";
+
+import { holdLabel, installLabel, isBusy, noticeLabel, otherReason, phaseLabel, sourceLabel, type Row } from "../lib/model";
+import type { Backup, Choice, Phase } from "../lib/native";
 import { AppIcon } from "./AppIcon";
-import { Close, External, EyeOff, Folder, Undo } from "./Icons";
+import { Close, External, EyeOff, Flag, Folder, More, Undo } from "./Icons";
 import { Kbd } from "./Kbd";
 
 interface Props {
@@ -17,6 +19,10 @@ interface Props {
   onReveal: () => void;
   onLink: (url: string) => void;
   onRollBack: () => void;
+  /** Skip this version, remind later, stay on this major, or clear. */
+  onChoice: (choice: Choice) => void;
+  /** Copy a report of what Camu saw, for a wrong version. */
+  onReport: () => void;
 }
 
 /** The side panel: properties first, release notes below, like an issue view. */
@@ -24,8 +30,14 @@ export function DetailPanel(props: Props) {
   const { row, phase, backup, ignored, beta } = props;
   const { app, report } = row;
   const best = report?.best;
-  const hasUpdate = report?.status === "updateAvailable" && phase?.phase !== "done";
+  const hasUpdate = report?.status === "updateAvailable" && phase?.phase !== "done" && !report.hold;
   const busy = isBusy(phase);
+  const [menu, setMenu] = useState(false);
+  const installedMajor = app.version.match(/\d+/)?.[0];
+  const choose = (c: Choice) => {
+    setMenu(false);
+    props.onChoice(c);
+  };
 
   const status = phase
     ? phaseLabel(phase)
@@ -46,11 +58,73 @@ export function DetailPanel(props: Props) {
       </header>
 
       <div className="panel-body">
+        {report?.hold && (
+          <div className="held">
+            <span>{holdLabel(report.hold)}</span>
+            <button type="button" className="btn" onClick={() => choose("clear")}>
+              Show this update again
+            </button>
+          </div>
+        )}
         {hasUpdate && (
-          <button type="button" className="btn go wide" onClick={props.onUpdate} disabled={busy}>
-            {busy ? phaseLabel(phase!) : `Update to ${best?.version}`}
-            {!busy && <Kbd keys={["U"]} />}
-          </button>
+          <div className="update-row">
+            <button
+              type="button"
+              className="btn go wide"
+              onClick={props.onUpdate}
+              disabled={busy || report?.notice?.kind === "needsMacOs"}
+            >
+              {busy
+                ? phaseLabel(phase!)
+                : report?.install.kind === "vendor"
+                  ? `Open ${report.install.name}`
+                  : `Update to ${best?.version}`}
+              {!busy && report?.install.kind !== "vendor" && <Kbd keys={["U"]} />}
+            </button>
+            <div className="menu-anchor">
+              <button
+                type="button"
+                className="btn icon-only"
+                aria-label="More update options"
+                aria-expanded={menu}
+                onClick={() => setMenu((m) => !m)}
+              >
+                <More />
+              </button>
+              {menu && (
+                <div className="popmenu" role="menu" aria-label="Update options">
+                  <button type="button" role="menuitem" onClick={() => choose("skip")}>
+                    Skip version {best?.version}
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => choose("snooze")}>
+                    Remind me in 30 days
+                  </button>
+                  {installedMajor && report?.major && (
+                    <button type="button" role="menuitem" onClick={() => choose("pin")}>
+                      Stay on version {installedMajor}.x
+                    </button>
+                  )}
+                  <hr />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenu(false);
+                      props.onIgnore();
+                    }}
+                  >
+                    Never update {app.name}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {report?.notice && report.notice.kind !== "setapp" && (
+          <p className="notice">{noticeLabel(report.notice)}</p>
+        )}
+        {report?.major && hasUpdate && (
+          <p className="notice warn">A new major version. It may need a new licence or change how the app works.</p>
         )}
 
         <dl className="props">
@@ -137,6 +211,11 @@ export function DetailPanel(props: Props) {
             <label className="menu-item">
               <input type="checkbox" checked={beta} onChange={props.onBeta} /> Include beta versions
             </label>
+          )}
+          {report && (report.findings.length > 0 || report.errors.length > 0) && (
+            <button type="button" className="menu-item" onClick={props.onReport}>
+              <Flag /> Version looks wrong? Copy a report
+            </button>
           )}
         </section>
       </div>

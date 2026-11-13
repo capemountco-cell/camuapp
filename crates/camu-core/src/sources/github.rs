@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use super::{Finding, Source};
 use crate::app::InstalledApp;
+use crate::arch::{self, Arch, Build};
 use crate::fetch::Fetch;
 use crate::version;
 
@@ -31,8 +32,11 @@ fn version_from_tag(tag: &str) -> Option<&str> {
     Some(&tag[start..])
 }
 
-/// Pick the asset most likely to be the Mac download.
-fn mac_asset(release: &Value) -> Option<String> {
+/// Pick the asset most likely to be the Mac download for `arch`: a Mac
+/// build over others, the right chip (or universal) over the wrong one, then
+/// dmg over zip over pkg. Names are read by whole words, so "darwin" isn't
+/// mistaken for "win".
+fn mac_asset(release: &Value, arch: Arch) -> Option<String> {
     let assets = release["assets"].as_array()?;
     let urls: Vec<&str> = assets
         .iter()
@@ -49,13 +53,19 @@ fn mac_asset(release: &Value) -> Option<String> {
         } else {
             return None;
         };
-        let mac = ["mac", "darwin", "osx", "universal"]
-            .iter()
-            .any(|h| lower.contains(h)) as u8;
-        let other_os = ["win", "linux", ".blockmap"]
-            .iter()
-            .any(|h| lower.contains(h));
-        (!other_os).then_some((mac, kind))
+        let name = lower.rsplit('/').next().unwrap_or(&lower).to_string();
+        let words: Vec<&str> = name.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+        let has = |w: &[&str]| words.iter().any(|x| w.contains(x));
+        let mac = has(&["mac", "macos", "darwin", "osx", "apple", "universal"]) as u8;
+        let other_os = has(&["win", "windows", "win32", "win64", "linux", "blockmap"])
+            || lower.ends_with(".blockmap");
+        let chip = match arch::build_of(url) {
+            Build::Universal => 2,
+            Build::Only(a) if a == arch => 2,
+            Build::Unknown => 1,
+            Build::Only(_) => 0,
+        };
+        (!other_os).then_some((mac, chip, kind))
     };
     urls.iter()
         .filter_map(|u| score(u).map(|s| (s, *u)))
@@ -64,6 +74,16 @@ fn mac_asset(release: &Value) -> Option<String> {
 }
 
 pub fn parse(json: &str, app: &InstalledApp, source: Source) -> Result<Option<Finding>, String> {
+    parse_for(json, app, source, Arch::host())
+}
+
+/// `parse`, choosing the download for `arch`.
+pub fn parse_for(
+    json: &str,
+    app: &InstalledApp,
+    source: Source,
+    arch: Arch,
+) -> Result<Option<Finding>, String> {
     let release: Value =
         serde_json::from_str(json).map_err(|e| format!("GitHub reply is not JSON: {e}"))?;
     if release["draft"].as_bool() == Some(true) || release["prerelease"].as_bool() == Some(true) {
@@ -80,7 +100,7 @@ pub fn parse(json: &str, app: &InstalledApp, source: Source) -> Result<Option<Fi
         .filter(|b| !b.is_empty());
     f.release_notes_url = release["html_url"].as_str().map(str::to_string);
     f.page_url = f.release_notes_url.clone();
-    f.download_url = mac_asset(&release);
+    f.download_url = mac_asset(&release, arch);
     f.date = release["published_at"].as_str().map(str::to_string);
     Ok(Some(f))
 }
@@ -90,9 +110,10 @@ pub fn check(
     owner: &str,
     repo: &str,
     fetch: &dyn Fetch,
+    arch: Arch,
 ) -> Result<Option<Finding>, String> {
     let body = fetch.get(&latest_url(owner, repo))?;
-    parse(&body, app, Source::Github)
+    parse_for(&body, app, Source::Github, arch)
 }
 
 #[cfg(test)]
@@ -124,8 +145,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            mac_asset(&release).as_deref(),
+            mac_asset(&release, Arch::Arm64).as_deref(),
             Some("https://x/Rocket-2.0-universal.dmg")
+        );
+    }
+
+    #[test]
+    fn picks_the_build_for_this_chip_and_keeps_darwin() {
+        let release: Value = serde_json::from_str(
+            r#"{"assets":[
+              {"browser_download_url":"https://x/Tabby-1.0-macos-arm64.dmg"},
+              {"browser_download_url":"https://x/Tabby-1.0-macos-x64.dmg"},
+              {"browser_download_url":"https://x/Tabby-1.0-windows-x64.exe"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            mac_asset(&release, Arch::X86_64).as_deref(),
+            Some("https://x/Tabby-1.0-macos-x64.dmg")
+        );
+        assert_eq!(
+            mac_asset(&release, Arch::Arm64).as_deref(),
+            Some("https://x/Tabby-1.0-macos-arm64.dmg")
+        );
+        let darwin: Value = serde_json::from_str(
+            r#"{"assets":[{"browser_download_url":"https://x/tool-1.0-darwin-arm64.zip"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            mac_asset(&darwin, Arch::Arm64).as_deref(),
+            Some("https://x/tool-1.0-darwin-arm64.zip")
         );
     }
 }

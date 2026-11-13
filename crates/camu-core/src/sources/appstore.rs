@@ -35,6 +35,7 @@ pub fn parse(json: &str, app: &InstalledApp) -> Result<Option<Finding>, String> 
     let text = |key: &str| result[key].as_str().map(str::to_string);
 
     let mut f = Finding::new(Source::AppStore, remote);
+    f.minimum_os = text("minimumOsVersion");
     f.is_update = version::is_update(remote, None, &app.version, app.build.as_deref());
     f.release_notes = text("releaseNotes")
         .map(|n| notes::to_text(&n))
@@ -90,6 +91,7 @@ mod tests {
             from_app_store: true,
             minimum_os: None,
             icon_file: None,
+            ..Default::default()
         }
     }
 
