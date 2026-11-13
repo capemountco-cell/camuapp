@@ -13,9 +13,10 @@ Built with Tauri 2, Rust and React, from the Mac App Template.
 
 **Privacy.** Camu talks to the update sources it checks. Besides those, it
 contacts camu.cc for two things, and neither carries anything that
-identifies you or your Mac: once, the first time it opens, to count the
-install (only Camu's version is sent), and when you choose *Version looks
-wrong? Report it* (the app's name, its version and what Camu found).
+identifies you or your Mac: to count installs and updates (once the first
+time it opens, and once when it opens on a newer version; only Camu's
+version is sent), and when you choose *Version looks wrong? Report it* (the
+app's name, its version and what Camu found).
 
 ## Download
 

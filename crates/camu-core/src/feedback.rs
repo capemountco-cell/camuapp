@@ -1,13 +1,16 @@
 //! The two things Camu ever sends to camu.cc, both anonymous:
 //!
 //! - a wrong-version report, only when the user asks for one;
-//! - "installed", once, the first time Camu opens, with only Camu's version.
+//! - "installed", once, the first time Camu opens, with only Camu's version;
+//! - "updated", once per update, when Camu opens on a newer version.
 //!
 //! Neither carries anything that identifies the Mac or the person.
 
 use serde::{Deserialize, Serialize};
 
 use crate::fetch::Post;
+use crate::settings::State;
+use crate::version;
 
 pub const REPORT_URL: &str = "https://camu.cc/api/report";
 pub const PING_URL: &str = "https://camu.cc/api/ping";
@@ -49,9 +52,61 @@ pub fn send_report(
     post.post_json(REPORT_URL, &body)
 }
 
-/// Say "installed" once. Returns true when camu.cc got it, so it isn't sent again.
-pub fn send_install(post: &dyn Post, camu: &str) -> bool {
-    let body = serde_json::json!({ "event": "install", "camu": camu }).to_string();
+/// What to tell camu.cc when Camu opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaunchEvent {
+    /// A new copy, opening for the first time.
+    Install,
+    /// Camu opened on a newer version than last time: an update finished.
+    Update,
+}
+
+impl LaunchEvent {
+    fn name(self) -> &'static str {
+        match self {
+            LaunchEvent::Install => "install",
+            LaunchEvent::Update => "update",
+        }
+    }
+}
+
+/// Decide what to tell camu.cc as `current` opens, and do the bookkeeping
+/// that doesn't depend on sending it. Call [`mark_sent`] once it was sent, so
+/// an unsent event is tried again next time.
+pub fn launch_event(state: &mut State, current: &str) -> Option<LaunchEvent> {
+    // Copies in use before install counting existed aren't new installs.
+    if !state.install_counted && state.last_check.is_some() {
+        state.install_counted = true;
+    }
+    if !state.install_counted {
+        // Remember the version now, so a failed install ping never turns into
+        // an "update" later.
+        state.last_version = Some(current.to_string());
+        return Some(LaunchEvent::Install);
+    }
+    match state.last_version.as_deref() {
+        Some(last) if last == current => None,
+        // Opened on an older version (a rollback): nothing finished.
+        Some(last) if !version::is_newer(current, last) => {
+            state.last_version = Some(current.to_string());
+            None
+        }
+        // Newer than last time, or a copy from before versions were kept.
+        _ => Some(LaunchEvent::Update),
+    }
+}
+
+/// Record that `event` reached camu.cc.
+pub fn mark_sent(state: &mut State, event: LaunchEvent, current: &str) {
+    if event == LaunchEvent::Install {
+        state.install_counted = true;
+    }
+    state.last_version = Some(current.to_string());
+}
+
+/// Tell camu.cc about a launch event. Returns true when it got it.
+pub fn send_event(post: &dyn Post, event: LaunchEvent, camu: &str) -> bool {
+    let body = serde_json::json!({ "event": event.name(), "camu": camu }).to_string();
     post.post_json(PING_URL, &body).is_ok()
 }
 
@@ -105,9 +160,54 @@ mod tests {
     #[test]
     fn install_ping_is_only_the_version() {
         let sent = Sent::default();
-        assert!(send_install(&sent, "0.3.1"));
+        assert!(send_event(&sent, LaunchEvent::Install, "0.3.1"));
         let (url, body) = sent.0.lock().unwrap()[0].clone();
         assert_eq!(url, PING_URL);
         assert_eq!(body, r#"{"camu":"0.3.1","event":"install"}"#);
+    }
+
+    #[test]
+    fn launch_events() {
+        // A brand-new copy: an install, and never an update afterwards even
+        // if the install ping didn't get through.
+        let mut fresh = State::default();
+        assert_eq!(
+            launch_event(&mut fresh, "0.3.2"),
+            Some(LaunchEvent::Install)
+        );
+        fresh.last_check = Some(1);
+        assert_eq!(launch_event(&mut fresh, "0.3.2"), None);
+
+        // Sent: next launch on the same version says nothing.
+        let mut state = State::default();
+        let event = launch_event(&mut state, "0.3.2").unwrap();
+        mark_sent(&mut state, event, "0.3.2");
+        state.last_check = Some(1);
+        assert_eq!(launch_event(&mut state, "0.3.2"), None);
+
+        // An update finished; repeated until it's sent.
+        assert_eq!(launch_event(&mut state, "0.3.3"), Some(LaunchEvent::Update));
+        assert_eq!(launch_event(&mut state, "0.3.3"), Some(LaunchEvent::Update));
+        mark_sent(&mut state, LaunchEvent::Update, "0.3.3");
+        assert_eq!(launch_event(&mut state, "0.3.3"), None);
+
+        // A rollback to an older version isn't an update.
+        assert_eq!(launch_event(&mut state, "0.3.2"), None);
+        assert_eq!(state.last_version.as_deref(), Some("0.3.2"));
+
+        // A copy that was in use before versions were kept, opening on a new
+        // version: an update, not an install.
+        let mut old = State {
+            last_check: Some(1),
+            install_counted: true,
+            ..Default::default()
+        };
+        assert_eq!(launch_event(&mut old, "0.3.2"), Some(LaunchEvent::Update));
+        let mut older = State {
+            last_check: Some(1),
+            ..Default::default()
+        };
+        assert_eq!(launch_event(&mut older, "0.3.2"), Some(LaunchEvent::Update));
+        assert!(older.install_counted);
     }
 }

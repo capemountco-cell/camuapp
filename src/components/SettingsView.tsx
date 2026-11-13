@@ -277,7 +277,7 @@ export function SettingsView({ settings, version, selfUpdate, checkingSelf, onCh
           detail={
             selfUpdate
               ? `Camu ${selfUpdate.version} is available.${selfUpdate.canInstall ? "" : " Download it from camu.cc."}`
-              : "No accounts, nothing that identifies you. Camu talks to the update sources it checks, and to camu.cc once to count the install."
+              : "No accounts, nothing that identifies you. Camu talks to the update sources it checks, and to camu.cc to count installs and updates (only its version)."
           }
         >
           {selfUpdate ? (

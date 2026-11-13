@@ -958,33 +958,18 @@ async fn app_icon(path: PathBuf, icon_file: String) -> Result<Option<String>, St
     blocking(move || icon::data_url(&path, &icon_file)).await
 }
 
-/// Is this a new copy of Camu that camu.cc hasn't counted yet? Copies already
-/// in use before counting existed are marked counted and left alone.
-fn install_is_fresh(inner: &Inner) -> bool {
-    let mut state = inner.state.lock().unwrap();
-    if state.install_counted {
-        return false;
-    }
-    if state.last_check.is_some() {
-        state.install_counted = true;
-        drop(state);
-        inner.save_state();
-        return false;
-    }
-    true
-}
-
-/// Tell camu.cc once that Camu was installed: only Camu's version is sent.
-fn count_install(app: &AppHandle, inner: &Inner) {
+/// Tell camu.cc, once, that this copy was installed or that an update
+/// finished. Only Camu's version is sent. Tried a few times, in case the Mac
+/// is still joining a network; an unsent event is tried again next launch.
+fn count_launch(app: &AppHandle, inner: &Inner, event: feedback::LaunchEvent) {
     let camu = app.package_info().version.to_string();
     let fetch = HttpFetch::new();
-    // A few tries, in case the Mac is still joining a network.
     for attempt in 0..3 {
         if attempt > 0 {
             std::thread::sleep(std::time::Duration::from_secs(60));
         }
-        if feedback::send_install(&fetch, &camu) {
-            inner.state.lock().unwrap().install_counted = true;
+        if feedback::send_event(&fetch, event, &camu) {
+            feedback::mark_sent(&mut inner.state.lock().unwrap(), event, &camu);
             inner.save_state();
             return;
         }
@@ -1075,12 +1060,14 @@ pub fn run() {
             refresh_tray(&handle, &inner);
 
             // Decided before the first check, which sets `last_check`.
-            let fresh = install_is_fresh(&inner);
+            let camu = handle.package_info().version.to_string();
+            let launch = feedback::launch_event(&mut inner.state.lock().unwrap(), &camu);
+            inner.save_state();
             let (h, i) = (handle.clone(), inner.clone());
             std::thread::spawn(move || scheduler(h, i));
-            if fresh {
+            if let Some(event) = launch {
                 let (h, i) = (handle.clone(), inner.clone());
-                std::thread::spawn(move || count_install(&h, &i));
+                std::thread::spawn(move || count_launch(&h, &i, event));
             }
             Ok(())
         })

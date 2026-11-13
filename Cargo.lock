@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "camu"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "camu-core",
  "serde",
@@ -424,7 +424,7 @@ dependencies = [
 
 [[package]]
 name = "camu-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
