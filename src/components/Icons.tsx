@@ -5,6 +5,7 @@
 
 import type { Phase, Status } from "../lib/native";
 import { phaseProgress } from "../lib/model";
+import { WORDMARK_PATH, WORDMARK_VIEWBOX } from "./wordmark-path";
 
 type IconProps = { className?: string };
 
@@ -72,11 +73,17 @@ export const Gear = (p: IconProps) =>
 export const Command = (p: IconProps) =>
   svg(<path d="M6 6V4.5a1.5 1.5 0 1 0-1.5 1.5H6Zm0 0v4m0-4h4m-4 4H4.5A1.5 1.5 0 1 0 6 11.5V10Zm0 0h4m0-4V4.5A1.5 1.5 0 1 1 11.5 6H10Zm0 0v4m0 0v1.5a1.5 1.5 0 1 0 1.5-1.5H10Z" {...stroke} />, p);
 
-/** Camu's mark: an eye whose pupil is an up arrow. */
-export const Mark = () => (
-  <svg className="mark" width="18" height="18" viewBox="0 0 18 18" aria-hidden>
-    <rect width="18" height="18" rx="5" fill="var(--accent)" />
-    <path d="M9 12.5V6M6.5 8.25 9 5.75l2.5 2.5" stroke="#fff" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+/** The CAMU wordmark, in the current text colour. `height` sets its size. */
+export const Wordmark = ({ height = 14, className = "wordmark" }: { height?: number; className?: string }) => (
+  <svg
+    className={className}
+    height={height}
+    width={(height * 381.085) / 61.974}
+    viewBox={WORDMARK_VIEWBOX}
+    role="img"
+    aria-label="Camu"
+  >
+    <path fill="currentColor" fillRule="evenodd" d={WORDMARK_PATH} />
   </svg>
 );
 

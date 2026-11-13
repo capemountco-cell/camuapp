@@ -1,6 +1,6 @@
 import type { Tab } from "../lib/model";
 import type { SelfUpdate } from "../lib/native";
-import { ArrowUpCircle, CheckCircle, EyeOff, Gear, Mark, Question, Refresh, Search } from "./Icons";
+import { ArrowUpCircle, CheckCircle, EyeOff, Gear, Question, Wordmark, Refresh, Search } from "./Icons";
 
 export type View = Tab | "settings";
 
@@ -23,7 +23,7 @@ interface Props {
 
 /**
  * The window's top, laid out like a classic Mac toolbar (MacUpdater's):
- * the title row holds the window buttons and Camu's logo, centred; the row
+ * the title row holds the window buttons and Camu's wordmark, centred; the row
  * below holds large icon-and-label buttons, the places on the left and the
  * actions on the right. Empty space in either row drags the window.
  */
@@ -32,8 +32,7 @@ export function TopBar({ view, counts, checking, selfUpdate, onView, onCheck, on
     <header className="toolbar-shell" data-tauri-drag-region>
       <div className="titlerow" data-tauri-drag-region>
         <span className="title-logo" data-tauri-drag-region>
-          <Mark />
-          <span data-tauri-drag-region>Camu</span>
+          <Wordmark height={13} />
         </span>
       </div>
 
