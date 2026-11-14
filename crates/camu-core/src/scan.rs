@@ -153,6 +153,9 @@ mod tests {
         make_app(&system, "Rocket.app", "com.acme.rocket", "1.0");
 
         let apps = scan(&[system.clone(), user.clone()]);
+        // App paths are canonical; on macOS the temp folder is /private/var.
+        let system = fs::canonicalize(&system).unwrap();
+        let user = fs::canonicalize(&user).unwrap();
         assert_eq!(apps.len(), 2, "{apps:?}");
         let chat = apps
             .iter()
