@@ -28,9 +28,47 @@ pub fn scan(roots: &[PathBuf]) -> Vec<InstalledApp> {
     for root in roots {
         walk(root, 0, &mut found);
     }
-    let mut apps: Vec<_> = found.into_values().filter(is_relevant).collect();
+    let apps: Vec<_> = found.into_values().filter(is_relevant).collect();
+    let mut apps = merge_copies(apps, roots);
     apps.sort_by_key(|app| app.name.to_lowercase());
     apps
+}
+
+/// One entry per app: copies with the same bundle id (say /Applications/Rocket.app
+/// and ~/Applications/Rocket.app) become one, listing the others in
+/// `other_copies`. The copy kept is the newest version; on a tie, the one in
+/// the first root (/Applications), then the one nested least deeply.
+fn merge_copies(apps: Vec<InstalledApp>, roots: &[PathBuf]) -> Vec<InstalledApp> {
+    // App paths are canonical (symlinks resolved), so compare with canonical roots.
+    let roots: Vec<PathBuf> = roots
+        .iter()
+        .map(|r| fs::canonicalize(r).unwrap_or_else(|_| r.clone()))
+        .collect();
+    let rank = |app: &InstalledApp| {
+        let root = roots
+            .iter()
+            .position(|r| app.path.starts_with(r))
+            .unwrap_or(roots.len());
+        (root, app.path.components().count())
+    };
+    let mut by_id: BTreeMap<String, Vec<InstalledApp>> = BTreeMap::new();
+    let mut out = Vec::new();
+    for app in apps {
+        if app.bundle_id.is_empty() {
+            out.push(app);
+        } else {
+            by_id.entry(app.bundle_id.clone()).or_default().push(app);
+        }
+    }
+    for (_, mut copies) in by_id {
+        copies.sort_by(|a, b| {
+            crate::version::compare(&b.version, &a.version).then_with(|| rank(a).cmp(&rank(b)))
+        });
+        let mut keep = copies.remove(0);
+        keep.other_copies = copies.into_iter().map(|c| c.path).collect();
+        out.push(keep);
+    }
+    out
 }
 
 fn walk(dir: &Path, depth: usize, found: &mut BTreeMap<PathBuf, InstalledApp>) {
@@ -101,5 +139,36 @@ mod tests {
         assert_eq!(names, ["Alpha", "Zebra"]);
 
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn copies_of_one_app_are_listed_once() {
+        let base = std::env::temp_dir().join(format!("camu-copies-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let system = base.join("Applications");
+        let user = base.join("home/Applications");
+        make_app(&system, "ChatGPT.app", "com.openai.chat", "1.2025.1");
+        make_app(&user, "ChatGPT.app", "com.openai.chat", "1.2025.1");
+        make_app(&user.join("Old"), "Rocket.app", "com.acme.rocket", "2.0");
+        make_app(&system, "Rocket.app", "com.acme.rocket", "1.0");
+
+        let apps = scan(&[system.clone(), user.clone()]);
+        assert_eq!(apps.len(), 2, "{apps:?}");
+        let chat = apps
+            .iter()
+            .find(|a| a.bundle_id == "com.openai.chat")
+            .unwrap();
+        // Same version: the /Applications copy wins.
+        assert!(chat.path.starts_with(&system));
+        assert_eq!(chat.other_copies.len(), 1);
+        assert!(chat.other_copies[0].starts_with(&user));
+        // Newest version wins, wherever it is.
+        let rocket = apps
+            .iter()
+            .find(|a| a.bundle_id == "com.acme.rocket")
+            .unwrap();
+        assert_eq!(rocket.version, "2.0");
+        assert!(rocket.other_copies[0].starts_with(&system));
+        let _ = fs::remove_dir_all(&base);
     }
 }

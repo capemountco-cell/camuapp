@@ -46,6 +46,9 @@ pub struct InstalledApp {
     pub sparkle_key: Option<String>,
     /// Installed and kept up to date by Setapp.
     pub setapp: bool,
+    /// Other copies of the same app (same bundle id) found elsewhere. Camu
+    /// shows and updates this copy; the others are only mentioned.
+    pub other_copies: Vec<PathBuf>,
 }
 
 impl InstalledApp {
@@ -103,6 +106,7 @@ impl InstalledApp {
             archs,
             sparkle_key: text("SUPublicEDKey"),
             setapp,
+            other_copies: Vec::new(),
         })
     }
 
