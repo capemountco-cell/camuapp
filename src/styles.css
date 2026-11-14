@@ -1575,3 +1575,19 @@ html.is-popover body {
   opacity: 0.45;
   filter: grayscale(1);
 }
+
+/* An inline action inside a notice, e.g. "Show … in Finder". */
+.link-button {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  text-align: left;
+  word-break: break-all;
+}

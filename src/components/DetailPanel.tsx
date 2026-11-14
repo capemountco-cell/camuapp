@@ -23,6 +23,8 @@ interface Props {
   onChoice: (choice: Choice) => void;
   /** Send camu.cc a report of what Camu saw, for a wrong version. */
   onReport: () => void;
+  /** Show a file in Finder: another copy of this app. */
+  onRevealPath: (path: string) => void;
 }
 
 /** The side panel: properties first, release notes below, like an issue view. */
@@ -122,6 +124,18 @@ export function DetailPanel(props: Props) {
         )}
         {report?.notice && report.notice.kind !== "setapp" && (
           <p className="notice">{noticeLabel(report.notice)}</p>
+        )}
+        {(row.app.otherCopies?.length ?? 0) > 0 && (
+          <p className="notice">
+            {row.app.otherCopies!.length === 1 ? "Another copy" : `${row.app.otherCopies!.length} other copies`} of{" "}
+            {row.app.name} {row.app.otherCopies!.length === 1 ? "is" : "are"} installed. Camu shows and updates the one
+            at {row.app.path}.{" "}
+            {row.app.otherCopies!.map((p) => (
+              <button key={p} type="button" className="link-button" onClick={() => props.onRevealPath(p)}>
+                Show {p} in Finder
+              </button>
+            ))}
+          </p>
         )}
         {report?.major && hasUpdate && (
           <p className="notice warn">A new major version. It may need a new licence or change how the app works.</p>

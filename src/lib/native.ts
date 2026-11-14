@@ -26,6 +26,8 @@ export interface InstalledApp {
   /** The chips the app's binary runs on natively; empty if unreadable. */
   archs?: Arch[];
   setapp?: boolean;
+  /** Other copies of the same app found elsewhere; this one is shown and updated. */
+  otherCopies?: string[];
 }
 
 export type Arch = "arm64" | "x86_64";

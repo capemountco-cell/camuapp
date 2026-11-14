@@ -732,6 +732,7 @@ export function App() {
               onIgnore={() => act.ignore(selectedRow)}
               onBeta={() => act.beta(selectedRow)}
               onReveal={() => act.reveal(selectedRow)}
+              onRevealPath={(path) => void revealApp(path).catch((c) => toast(String(c), "error"))}
               onLink={act.link}
               onRollBack={() => act.rollBack(selectedRow)}
               onChoice={(c) => act.choice(selectedRow, c)}
